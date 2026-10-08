@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
+<script src="../netplay.js"></script>
+<title>军棋 - 你 vs 小miu</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(#fbf5e3,#f3e7c6);color:#5a4632;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:16px 12px;user-select:none;-webkit-user-select:none}
+#topbar{width:100%;max-width:480px;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+#status{font-size:15px;color:#c46a1b;font-weight:bold}
+#newgame{background:#e94560;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:14px;cursor:pointer}
+#newgame:active{transform:scale(.96)}
+#board-wrap{position:relative;width:100%;max-width:600px;aspect-ratio:1/1;background:#e9d9ae;border-radius:12px;padding:6%;margin-bottom:10px}
+#board{position:relative;width:100%;height:100%}
+#grid-svg{position:absolute;inset:0;width:100%;height:100%}
+#grid-svg line{stroke:#8a6f4d;stroke-width:2}
+.pt{position:absolute;transform:translate(-50%,-50%);cursor:pointer;z-index:2}
+.pt img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.pt.selected img{box-shadow:0 0 0 3px #c46a1b,0 2px 8px rgba(0,0,0,.5)}
+.pt.card-back{width:100%;aspect-ratio:3/4;background:linear-gradient(135deg,#2a4a7a,#1a2a4a);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;color:#9db8dd;border:2px solid #3a5a8a;pointer-events:none}
+.pt.card-back span{pointer-events:none}
+.hint{position:absolute;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:#1d9d55;z-index:3;pointer-events:none;box-shadow:0 0 8px #1d9d55;animation:hintPulse 1.2s ease-in-out infinite}
+@keyframes hintPulse{0%,100%{transform:translate(-50%,-50%) scale(1);opacity:.85}50%{transform:translate(-50%,-50%) scale(1.3);opacity:1}}
+.hint.cap{width:22px;height:22px;background:transparent;border:3px solid #c0392b;box-shadow:0 0 10px #e74c3c;animation:hintPulse 1.2s ease-in-out infinite}
+.lm{position:absolute;transform:translate(-50%,-50%);z-index:4;pointer-events:none;border-radius:6px;aspect-ratio:3/4}
+.lm.from{box-shadow:0 0 0 3px rgba(196,106,27,.95),0 0 16px rgba(196,106,27,.5)}
+.lm.to{box-shadow:0 0 0 3px rgba(29,157,85,.95),0 0 16px rgba(29,157,85,.5)}
+.move-ghost{position:absolute;transform:translate(-50%,-50%);z-index:60;pointer-events:none;transition:left .45s ease,top .45s ease}
+.move-ghost img{width:100%;display:block;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+#captured{width:100%;max-width:480px;display:flex;justify-content:space-between;padding:8px 4px;font-size:13px;margin-top:2px}
+.cap-group{display:flex;gap:3px;flex-wrap:wrap;align-items:center;max-width:45%}
+.cap-group img{width:22px;height:32px;object-fit:contain;border-radius:3px}
+#rules{width:100%;max-width:480px;background:#fffdf4;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.7;color:#5a4632;margin-top:16px}
+#rules b{color:#c46a1b}
+#toast{position:fixed;left:50%;bottom:25%;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;display:none;z-index:100;white-space:nowrap}
+.thinking{color:#8a5a2b!important}
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:50}
+#overlay.show{display:flex}
+#ov-card{background:#f5ecd8;color:#333;border-radius:14px;padding:32px 44px;text-align:center;max-width:88vw}
+#ov-card h2{margin-bottom:12px}
+#btn-again{background:#b73a2b;color:#fff;border:none;border-radius:8px;padding:12px 32px;font-size:16px;cursor:pointer;margin-top:8px}
+#btn-share{background:#e8e0cc;color:#333;border:none;border-radius:8px;padding:12px 20px;font-size:14px;cursor:pointer;margin-top:8px}
+#btn-agree{background:#2b8a3e;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:15px;cursor:pointer;margin:8px 0}
+</style>
+</head>
+<body>
+<script>
+// Preload all 25 card images to avoid flip stutter
+(function(){
+  var files=[
+    'red_siling','red_junzhang','red_shizhang','red_lvzhang','red_tuanzhang',
+    'red_yingzhang','red_lianzhang','red_paizhang','red_banzhang','red_gongbing',
+    'red_dilei','red_zhadan','red_junqi',
+    'blue_siling','blue_junzhang','blue_shizhang','blue_lvzhang','blue_tuanzhang','blue_yingzhang','blue_lianzhang',
+    'blue_paizhang','blue_banzhang','blue_gongbing','blue_dilei','blue_zhadan'
+  ];
+  for(var i=0;i<files.length;i++){
+    var img=new Image();
+    img.src='img/'+files[i]+'.png';
+  }
+})();
+</script>
+
+<div id="topbar">
+  <div id="status">先翻一张牌（翻到哪色你就是哪方）</div>
+  <button id="newgame">新对局</button>
+</div>
+<div id="board-wrap"><div id="board"><svg id="grid-svg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg></div></div>
+<div id="captured">
+  <div><div style="margin-bottom:4px">你的缴获</div><div class="cap-group" id="cap-human"></div></div>
+  <div><div style="margin-bottom:4px">小miu的缴获</div><div class="cap-group" id="cap-ai"></div></div>
+</div>
+<div id="rules">
+<b>军棋（简化翻牌版）：</b><br>
+<b>棋盘：</b>5×5共25个交叉点，棋子放在交叉点上。<br>
+<b>翻牌：</b>开局25张牌扣着打乱，每回合可翻一张或走一步。第一张翻到哪色，你就是哪方。<br>
+<b>走子：</b>除地雷、军旗外，沿线走1格。<br>
+<b>大小：</b>司令&gt;军长&gt;师长&gt;旅长&gt;团长&gt;营长&gt;连长&gt;排长&gt;班长&gt;工兵，大吃小。<br>
+<b>地雷：</b>不能动；任何子撞上都同归于尽，只有工兵能排雷（工兵存活）。<br>
+<b>炸弹：</b>主动撞或被撞，双方同归于尽（只能炸人，不能炸军旗）。炸弹不能空走：只有走到相邻有对方牌的位置（或直接撞上对方的牌）才能移动。<br>
+<b>军旗：</b>中立，不能动；只有工兵能拿，拿到军旗直接获胜。<br>
+<b>胜负：</b>工兵拿到军旗获胜；或对方无棋可走判负。<br>\n<b>同级：</b>同级相遇双方同归于尽。
+</div>
+<div id="toast"></div>
+<div id="overlay"><div id="ov-card"><h2 id="ov-text"></h2>
+<div id="ov-rematch" style="display:none;margin:6px 0">对方请求再来一局 <button id="btn-agree">同意</button></div>
+<div><button id="btn-again">再来一局</button> <button id="btn-share" style="margin-left:10px">复制战绩</button></div>
+<div id="share-hint" style="font-size:12px;color:#8a7358;margin-top:10px">复制后发给小miu，它能帮你复盘</div></div></div>
+
+<script>
+// ============ Constants ============
+var COLS=5, ROWS=5;
+var CARDW=17; // card width % for 5x5 (shared by render + move animation)
+var PIECES={
+  siling:   {name:'司令', rank:10, canMove:true},
+  junzhang: {name:'军长', rank:9,  canMove:true},
+  shizhang: {name:'师长', rank:8,  canMove:true},
+  lvzhang:  {name:'旅长', rank:7,  canMove:true},
+  tuanzhang:{name:'团长', rank:6,  canMove:true},
+  yingzhang:{name:'营长', rank:5,  canMove:true},
+  lianzhang:{name:'连长', rank:4,  canMove:true},
+  paizhang: {name:'排长', rank:3,  canMove:true},
+  banzhang: {name:'班长', rank:2,  canMove:true},
+  gongbing: {name:'工兵', rank:1,  canMove:true},
+  dilei:    {name:'地雷', rank:0,  canMove:false},
+  zhadan:   {name:'炸弹', rank:0,  canMove:true},
+  junqi:    {name:'军旗', rank:0,  canMove:false}
+};
+// Deck: 25 cards (red 13 incl flag, blue 12 no flag)
+var DECK=[
+  {c:'red',t:'siling'},{c:'red',t:'junzhang'},{c:'red',t:'shizhang'},
+  {c:'red',t:'lvzhang'},{c:'red',t:'tuanzhang'},{c:'red',t:'yingzhang'},
+  {c:'red',t:'lianzhang'},{c:'red',t:'paizhang'},{c:'red',t:'banzhang'},
+  {c:'red',t:'gongbing'},{c:'red',t:'dilei'},{c:'red',t:'zhadan'},
+  {c:'neutral',t:'junqi'},
+  {c:'blue',t:'siling'},{c:'blue',t:'junzhang'},{c:'blue',t:'shizhang'},
+  {c:'blue',t:'lvzhang'},{c:'blue',t:'tuanzhang'},{c:'blue',t:'yingzhang'},
+  {c:'blue',t:'lianzhang'},{c:'blue',t:'paizhang'},{c:'blue',t:'banzhang'},
+  {c:'blue',t:'gongbing'},{c:'blue',t:'dilei'},{c:'blue',t:'zhadan'}
+];
+function imgSrc(c,t){
+  if(t==='junqi')return 'img/red_junqi.png'; // neutral flag
+  return 'img/'+c+'_'+t+'.png';
+}
+
+// ============ State ============
+var G=null, sel=null, hints=[], aiThinking=false;
+/* ============ 联机对战（P2P 开房间） ============ */
+var NET={mode:'ai',role:'host',session:null};
+function netActive(){return NET.mode==='net'&&NET.session&&NET.session.open;}
+function myColor(){return G?(NET.role==='host'?G.human:G.ai):null;}
+function isMyTurn(){return G?(G.turn==='human')===(NET.role==='host'):false;}
+function oppName(){return netActive()?'对方':'小miu';}
+function peerSlot(){return NET.role==='host'?'ai':'human';}
+function localSlot(){return NET.role==='host'?'human':'ai';}
+function snapG(){return JSON.parse(JSON.stringify(G));}
+function loadSnap(st){G=st;sel=null;hints=[];aiThinking=false;render();refreshNetStatus();}
+function refreshNetStatus(){
+  if(!G||G.over)return;
+  if(isMyTurn()){
+    if(!G.human)setStatus(NET.role==='host'?'先翻一张牌（翻到哪色你就是哪方）':'等待对方先翻牌');
+    else setStatus('轮到你走棋（你是'+(myColor()==='red'?'红':'蓝')+'方）');
+  }else setStatus(oppName()+'思考中...');
+}
+function netLobby(){
+  if(typeof Netplay==='undefined'||typeof mqtt==='undefined'){
+    toast('网络组件加载失败，已切回单机模式');NET.mode='ai';newGame();return;
+  }
+  Netplay.lobby('junqi',{
+    getSnapshot:snapG,
+    onReady:function(sess,role,re){
+      NET.mode='net';NET.role=role;NET.session=sess;
+      if(!re){if(role==='host'){newGame();}else{setStatus('已连接，等待房主发棋盘…');}}
+      refreshNetStatus();
+    },
+    onOp:applyPeerOp,
+    onState:function(state){loadSnap(state);toast('已同步棋盘');},
+    onClose:function(){
+      if(NET.mode!=='net')return;
+      Netplay.showDisconnect(
+        function(){setStatus('正在重新连接…');NET.session.reconnect();},
+        function(){NET.mode='ai';NET.session=null;newGame();});
+    },
+    onError:function(){},
+    onRematch:onRematchRequest,
+    onCancel:function(){NET.mode='ai';newGame();}
+  });
+}
+function applyPeerOp(op){
+  if(!netActive()||!G||G.over)return;
+  var peerIsHuman=(NET.role==='guest');
+  if(op.type==='flip'){
+    var info=doMove(G,op);
+    if(info&&info.flipped&&!G.human&&info.flipped.c!=='neutral'){
+      if(peerIsHuman){G.human=info.flipped.c;G.ai=(info.flipped.c==='red'?'blue':'red');}
+      else{G.ai=info.flipped.c;G.human=(info.flipped.c==='red'?'blue':'red');}
+      toast('你是'+(myColor()==='red'?'红':'蓝')+'方');
+    }
+  }else{
+    applyAIMove(op,peerIsHuman);
+  }
+  afterOpponentMove();
+}
+function afterOpponentMove(){
+  updateWinState(G);
+  aiThinking=false;
+  document.getElementById('status').classList.remove('thinking');
+  render();
+  if(G.over){endGame();return;}
+  G.turn=(NET.role==='host'?'human':'ai');
+  refreshNetStatus();
+}
+function newState(){
+  return {board:[],human:null,ai:null,turn:'human',over:false,winner:null,
+          capHuman:[],capAI:[],justFlipped:false,lastMove:null,log:[]};
+}
+function shuffle(a){
+  for(var i=a.length-1;i>0;i--){
+    var j=Math.floor(Math.random()*(i+1));
+    var t=a[i];a[i]=a[j];a[j]=t;
+  }
+  return a;
+}
+function newGame(){
+  G=newState();
+  sel=null;hints=[];aiThinking=false;
+  hideOverlay();
+  var deck=shuffle(DECK.slice());
+  var idx=0;
+  for(var y=0;y<ROWS;y++){
+    G.board[y]=[];
+    for(var x=0;x<COLS;x++){
+      var p=deck[idx++];
+      G.board[y][x]={c:p.c,t:p.t,open:false};
+    }
+  }
+  setStatus('先翻一张牌（翻到哪色你就是哪方）');
+  render();
+}
+function setStatus(s){document.getElementById('status').textContent=s;}
+function toast(msg){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.style.display='block';
+  clearTimeout(t._tm);
+  t._tm=setTimeout(function(){t.style.display='none';},1600);
+}
+
+// ============ Coordinates ============
+function px(x){return (x/(COLS-1)*100);}
+function py(y){return (y/(ROWS-1)*100);}
+function inB(x,y){return x>=0&&x<COLS&&y>=0&&y<ROWS;}
+
+// ============ Capture logic ============
+// Returns: 'attacker' | 'defender' | 'both' | null (cannot capture)
+function captureResult(att,def){
+  // att, def: {c,t}
+  if(att.c===def.c)return null;
+  // Neutral flag: only engineer (gongbing) can take it; bomb cannot blow it up
+  if(def.t==='junqi'){
+    if(def.c!=='neutral')return null; // shouldn't happen, flag is always neutral
+    if(att.t==='gongbing')return 'attacker'; // engineer takes flag = win (handled separately)
+    return null; // bomb and other pieces cannot touch the flag
+  }
+  // Bomb involved: mutual destruction (people only, flag handled above)
+  if(att.t==='zhadan'||def.t==='zhadan')return 'both';
+  // Mine as defender
+  if(def.t==='dilei'){
+    if(att.t==='gongbing')return 'attacker'; // engineer defuses
+    return 'both'; // mine explodes, attacker dies too (simplified: both removed)
+  }
+  var A=PIECES[att.t], D=PIECES[def.t];
+  if(A.rank>D.rank)return 'attacker';
+  if(A.rank<D.rank)return 'defender';
+  return 'both'; // equal rank: mutual destruction
+}
+
+// ============ Moves ============
+var DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
+// Move: {type:'flip',x,y} | {type:'move',fx,fy,tx,ty} | {type:'capture',fx,fy,tx,ty,result}
+function getMoves(st,x,y,color){
+  var moves=[];
+  var p=st.board[y][x];
+  if(!p||!p.open||p.c!==color)return moves;
+  if(!PIECES[p.t].canMove)return moves;
+  for(var i=0;i<4;i++){
+    var nx=x+DIRS[i][0],ny=y+DIRS[i][1];
+    if(!inB(nx,ny))continue;
+    var q=st.board[ny][nx];
+    if(!q){
+      // Bomb cannot wander: only move if it ends orthogonally adjacent to an enemy piece
+      if(p.t==='zhadan'&&!bombNearEnemy(st,nx,ny,color))continue;
+      moves.push({type:'move',fx:x,fy:y,tx:nx,ty:ny});
+    }else if(q.open&&(q.c!==color||q.c==='neutral')){
+      var r=captureResult(p,q);
+      if(r)moves.push({type:'capture',fx:x,fy:y,tx:nx,ty:ny,result:r,foe:{c:q.c,t:q.t}});
+    }
+    // face-down blocks
+  }
+  return moves;
+}
+// Bomb wandering rule: after a bomb moves to (nx,ny), is an open enemy piece adjacent?
+// (face-down cards and the neutral flag don't count as "enemy pieces")
+function bombNearEnemy(st,nx,ny,color){
+  for(var i=0;i<DIRS.length;i++){
+    var ax=nx+DIRS[i][0],ay=ny+DIRS[i][1];
+    if(!inB(ax,ay))continue;
+    var q=st.board[ay][ax];
+    if(q&&q.open&&q.c!=='neutral'&&q.c!==color)return true;
+  }
+  return false;
+}
+function getFlips(st){
+  var f=[];
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    if(st.board[y][x]&&!st.board[y][x].open)f.push({type:'flip',x:x,y:y});
+  }
+  return f;
+}
+function getAllMoves(st,color){
+  var ms=getFlips(st);
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    var p=st.board[y][x];
+    if(p&&p.open&&p.c===color){
+      ms=ms.concat(getMoves(st,x,y,color));
+    }
+  }
+  return ms;
+}
+
+// Apply move to state. Returns info.
+function logMove(st,e){
+  if(st===G&&st.log){e.by=st.turn;e.n=st.log.length+1;st.log.push(e);}
+}
+function doMove(st,m){
+  st.justFlipped=(m.type==='flip');
+  if(m.type==='flip'){
+    var p=st.board[m.y][m.x];
+    p.open=true;
+    logMove(st,{type:'flip',x:m.x,y:m.y,cc:p.c,ct:p.t});
+    return {flipped:{c:p.c,t:p.t}};
+  }
+  var att=st.board[m.fy][m.fx];
+  if(m.type==='move'){
+    st.board[m.ty][m.tx]=att;
+    st.board[m.fy][m.fx]=null;
+    logMove(st,{type:'move',fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty});
+    return {};
+  }
+  if(m.type==='capture'){
+    var def=st.board[m.ty][m.tx];
+    var r=m.result;
+    if(r==='both'){
+      st.board[m.ty][m.tx]=null;
+      st.board[m.fy][m.fx]=null;
+      logMove(st,{type:'capture',fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty,result:r,attT:att.t,defT:def.t});
+      return {bothDead:true,attPiece:{c:att.c,t:att.t},defPiece:{c:def.c,t:def.t}};
+    }else if(r==='attacker'){
+      st.board[m.ty][m.tx]=att;
+      st.board[m.fy][m.fx]=null;
+      logMove(st,{type:'capture',fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty,result:r,attT:att.t,defT:def.t});
+      return {captured:{c:def.c,t:def.t}};
+    }else{ // defender wins
+      st.board[m.fy][m.fx]=null;
+      logMove(st,{type:'capture',fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty,result:r,attT:att.t,defT:def.t});
+      return {attackerDead:{c:att.c,t:att.t}};
+    }
+  }
+}
+function _doMove(st,m){return doMove(st,m);} // alias for AI
+
+function cloneState(st){
+  var ns={board:[],human:st.human,ai:st.ai,turn:st.turn,over:st.over,winner:st.winner,
+           capHuman:st.capHuman.slice(),capAI:st.capAI.slice(),justFlipped:!!st.justFlipped};
+  for(var y=0;y<ROWS;y++){
+    ns.board[y]=[];
+    for(var x=0;x<COLS;x++){
+      var p=st.board[y][x];
+      ns.board[y][x]=p?{c:p.c,t:p.t,open:p.open}:null;
+    }
+  }
+  return ns;
+}
+
+// ============ Win check ============
+// Face-down cards count as potential (alive) pieces: a side is only
+// eliminated when it has no legal moves AND nothing is left to flip.
+function faceDownCount(st){
+  var n=0;
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    var p=st.board[y][x];
+    if(p&&!p.open)n++;
+  }
+  return n;
+}
+function hasLegalMove(st,color){
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    var p=st.board[y][x];
+    if(p&&p.open&&p.c===color&&PIECES[p.t].canMove){
+      if(getMoves(st,x,y,color).length>0)return true;
+    }
+  }
+  return false;
+}
+function updateWinState(st){
+  if(st.over)return;
+  // Never decide the game right after a flip while cards remain face-down:
+  // unrevealed pieces are alive, just unknown. (军旗 capture is handled
+  // inline in the move wrappers, never by flipping.)
+  if(st.justFlipped&&faceDownCount(st)>0)return;
+  var fd=faceDownCount(st);
+  var redDead=!hasLegalMove(st,'red')&&fd===0;
+  var blueDead=!hasLegalMove(st,'blue')&&fd===0;
+  if(redDead&&blueDead){st.over=true;st.winner='draw';}
+  else if(redDead){st.over=true;st.winner='blue';}
+  else if(blueDead){st.over=true;st.winner='red';}
+}
+// checkWin kept for compatibility (returns flag presence only)
+function checkWin(st){
+  var flagOnBoard=false;
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    var p=st.board[y][x];
+    if(p&&p.t==='junqi'&&p.open){
+      flagOnBoard=true;
+    }
+  }
+  return {flagOnBoard:flagOnBoard};
+}
+
+// ============ UI: render ============
+function render(){
+  drawGrid();
+  var boardEl=document.getElementById('board');
+  // Remove old pieces and hints (keep svg)
+  var olds=boardEl.querySelectorAll('.pt,.hint,.lm');
+  for(var i=0;i<olds.length;i++)olds[i].remove();
+  var cardW=CARDW; // % width for 5x5
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    var p=G.board[y][x];
+    if(!p)continue;
+    var d=document.createElement('div');
+    d.className='pt';
+    if(sel&&sel.x===x&&sel.y===y)d.classList.add('selected');
+    d.style.left=px(x)+'%';d.style.top=py(y)+'%';
+    d.style.width=cardW+'%';
+    d.style.zIndex='2';
+    if(!p.open){
+      d.classList.add('card-back');
+      d.innerHTML='<span>军</span>';
+      d.style.aspectRatio='3/4';
+    }else{
+      var img=document.createElement('img');
+      img.src=imgSrc(p.c,p.t);
+      img.alt=PIECES[p.t].name;
+      img.draggable=false;
+      d.appendChild(img);
+    }
+    (function(xx,yy){
+      d.addEventListener('click',function(e){e.stopPropagation();onTap(xx,yy);});
+    })(x,y);
+    boardEl.appendChild(d);
+  }
+  // Hints
+  for(var h=0;h<hints.length;h++){
+    var hm=hints[h];
+    var hd=document.createElement('div');
+    hd.className='hint'+(hm.type==='capture'?' cap':'');
+    hd.style.left=px(hm.tx)+'%';hd.style.top=py(hm.ty)+'%';
+    boardEl.appendChild(hd);
+  }
+  // Last-move highlight: amber ring = origin, green ring = destination
+  if(G.lastMove){
+    var lm=G.lastMove;
+    var mf=document.createElement('div');
+    mf.className='lm from';
+    mf.style.left=px(lm.fx)+'%';mf.style.top=py(lm.fy)+'%';mf.style.width=CARDW+'%';
+    boardEl.appendChild(mf);
+    var mt=document.createElement('div');
+    mt.className='lm to';
+    mt.style.left=px(lm.tx)+'%';mt.style.top=py(lm.ty)+'%';mt.style.width=CARDW+'%';
+    boardEl.appendChild(mt);
+  }
+  renderCaptured();
+  // Board background click for empty intersections
+  // (handled via delegated listener attached once)
+}
+function drawGrid(){
+  var svg=document.getElementById('grid-svg');
+  svg.innerHTML='';
+  var NS='http://www.w3.org/2000/svg';
+  for(var x=0;x<COLS;x++){
+    var l=document.createElementNS(NS,'line');
+    l.setAttribute('x1',px(x));l.setAttribute('y1',py(0));
+    l.setAttribute('x2',px(x));l.setAttribute('y2',py(ROWS-1));
+    svg.appendChild(l);
+  }
+  for(var y=0;y<ROWS;y++){
+    var l2=document.createElementNS(NS,'line');
+    l2.setAttribute('x1',px(0));l2.setAttribute('y1',py(y));
+    l2.setAttribute('x2',px(COLS-1));l2.setAttribute('y2',py(y));
+    svg.appendChild(l2);
+  }
+}
+function renderCaptured(){
+  var hc=document.getElementById('cap-human');
+  var ac=document.getElementById('cap-ai');
+  hc.innerHTML='';ac.innerHTML='';
+  if(!G.human)return;
+  for(var i=0;i<G.capHuman.length;i++){
+    var p=G.capHuman[i];
+    var img=document.createElement('img');
+    img.src=imgSrc(p.c,p.t);
+    hc.appendChild(img);
+  }
+  for(var j=0;j<G.capAI.length;j++){
+    var q=G.capAI[j];
+    var img2=document.createElement('img');
+    img2.src=imgSrc(q.c,q.t);
+    ac.appendChild(img2);
+  }
+}
+function recordCapture(loserC,loserT,winnerIsHuman){
+  if(winnerIsHuman)G.capHuman.push({c:loserC,t:loserT});
+  else G.capAI.push({c:loserC,t:loserT});
+}
+// Slide a ghost of the moved piece from origin to destination over the fresh board
+function animateLastMove(lm){
+  try{
+    var boardEl=document.getElementById('board');
+    var g=document.createElement('div');
+    g.className='move-ghost';
+    var img=document.createElement('img');
+    img.src=lm.img;img.draggable=false;img.alt='';
+    g.appendChild(img);
+    g.style.width=CARDW+'%';
+    g.style.left=px(lm.fx)+'%';g.style.top=py(lm.fy)+'%';
+    boardEl.appendChild(g);
+    var raf=(typeof requestAnimationFrame!=='undefined')?requestAnimationFrame:function(f){f();};
+    raf(function(){raf(function(){
+      g.style.left=px(lm.tx)+'%';g.style.top=py(lm.ty)+'%';
+    });});
+    setTimeout(function(){if(g.parentNode)g.parentNode.removeChild(g);},600);
+  }catch(e){}
+}
+
+// ============ UI: interaction ============
+function onTap(x,y){
+  if(!G||G.over||aiThinking)return;
+  if(!isMyTurn())return;
+  var c=G.board[y][x];
+  // Flip face-down
+  if(c&&!c.open){
+    var info=doMove(G,{type:'flip',x:x,y:y});
+    // First NON-NEUTRAL flip sets colors (neutral flag doesn't count)
+    // 翻牌者拿该色：单机/AI模式沿用旧规则；联机按 slot（房主=human，客人=ai）
+    var _msg='翻开：'+PIECES[info.flipped.t].name+(info.flipped.c==='neutral'?'（中立）':'');
+    if(!G.human&&info.flipped.c!=='neutral'){
+      if(netActive()){
+        var _slot=localSlot();
+        G[_slot]=info.flipped.c;
+        G[_slot==='human'?'ai':'human']=(info.flipped.c==='red'?'blue':'red');
+      }else{
+        G.human=info.flipped.c;
+        G.ai=(G.human==='red'?'blue':'red');
+      }
+      _msg+='，你是'+(myColor()==='red'?'红':'蓝')+'方！';
+    }
+    toast(_msg);
+    afterHumanMove({type:'flip',x:x,y:y});
+    return;
+  }
+  // Deselect
+  if(sel&&sel.x===x&&sel.y===y){sel=null;hints=[];render();return;}
+  // Select own piece
+  if(c&&c.open&&G.human&&c.c===myColor()&&PIECES[c.t].canMove){
+    sel={x:x,y:y};
+    hints=getMoves(G,x,y,myColor());
+    render();
+    if(!hints.length)toast('这张牌没有可走的位置');
+    return;
+  }
+  // Try move to tapped hint
+  if(sel){
+    for(var i=0;i<hints.length;i++){
+      var h=hints[i];
+      if(h.tx===x&&h.ty===y){
+        executeHumanMove(h);
+        return;
+      }
+    }
+    sel=null;hints=[];render();
+  }
+}
+function executeHumanMove(h){
+  var info;
+  if(h.type==='capture'){
+    var defPiece={c:G.board[h.ty][h.tx].c,t:G.board[h.ty][h.tx].t};
+    info=doMove(G,h);
+    if(h.result==='attacker'){
+      recordCapture(defPiece.c,defPiece.t,true);
+    }else if(h.result==='both'){
+      recordCapture(defPiece.c,defPiece.t,true);
+      recordCapture(G.human,h.foe?getAttType(h):'',true); // attacker also dead, goes to AI's captures
+      // Simpler: attacker's piece also captured by AI
+    }else{ // defender wins, attacker dead
+      // attacker's piece goes to AI captures
+    }
+    // Handle flag capture
+    if(defPiece.t==='junqi'){
+      G.over=true;G.winner=G.human;
+    }
+    // Bomb mutual: attacker also dead
+    if(h.result==='both'){
+      // attacker's piece type
+      var attT=G.board[h.fy]&&G.board[h.fy][h.fx]?null:null; // already removed
+    }
+  }else{
+    info=doMove(G,h);
+  }
+  // Fix capture recording for 'both' and 'defender' cases
+  sel=null;hints=[];
+  updateWinState(G);
+  render();
+  if(G.over){endGame();return;}
+  afterHumanMove();
+}
+// Simpler capture recording: recompute from move
+function executeHumanMove2(h){
+  var attP={c:G.board[h.fy][h.fx].c,t:G.board[h.fy][h.fx].t};
+  var attImg=imgSrc(attP.c,attP.t);
+  var defP=h.type==='capture'?{c:G.board[h.ty][h.tx].c,t:G.board[h.ty][h.tx].t}:null;
+  var info=doMove(G,h);
+  var localIsHuman=(NET.role==='host');
+  if(h.type==='capture'){
+    if(h.result==='attacker'){
+      recordCapture(defP.c,defP.t,localIsHuman);
+      toast('吃掉了对方'+PIECES[defP.t].name+'！');
+      if(defP.t==='junqi'){G.over=true;G.winner=myColor();}
+    }else if(h.result==='both'){
+      recordCapture(defP.c,defP.t,localIsHuman);
+      recordCapture(attP.c,attP.t,!localIsHuman);
+      toast('💥 同归于尽！');
+    }else{ // defender wins
+      recordCapture(attP.c,attP.t,!localIsHuman);
+      toast('你的'+PIECES[attP.t].name+'被'+PIECES[defP.t].name+'吃掉了！');
+    }
+  }
+  sel=null;hints=[];
+  updateWinState(G);
+  G.lastMove={fx:h.fx,fy:h.fy,tx:h.tx,ty:h.ty};
+  render();
+  animateLastMove({fx:h.fx,fy:h.fy,tx:h.tx,ty:h.ty,img:attImg});
+  if(G.over){endGame();return;}
+  if(netActive()){
+    NET.session.sendOp(h);
+    G.turn=peerSlot();
+    setStatus('对方思考中...');
+    render();
+    return;
+  }
+  G.turn='ai';
+  setStatus('小miu 思考中...');
+  aiThinking=true;
+  setTimeout(aiMove,400);
+}
+// Use the correct one
+executeHumanMove=executeHumanMove2;
+
+function afterHumanMove(flipOp){
+  updateWinState(G);
+  render();
+  if(G.over){endGame();return;}
+  if(netActive()){
+    if(flipOp)NET.session.sendOp(flipOp);
+    G.turn=peerSlot();
+    setStatus('对方思考中...');
+    render();
+    return;
+  }
+  // If colors not yet assigned (no flip yet), stay human turn
+  G.turn='ai';
+  // AI only moves if colors assigned; otherwise AI just flips
+  setStatus('小miu 思考中...');
+  setStatus(document.getElementById('status').textContent);
+  aiThinking=true;
+  var st=document.getElementById('status');
+  st.classList.add('thinking');
+  setTimeout(aiMove,400);
+}
+function endGame(){
+  aiThinking=false;
+  var msg;
+  var me=(NET.mode==='net')?myColor():G.human;
+  var foe=netActive()?'对方':'小miu';
+  if(G.winner==='draw')msg='平局！';
+  else if(me&&G.winner===me)msg='🎉 你赢了！';
+  else msg='😅 '+foe+'赢了，再接再厉！';
+  setStatus(msg);
+  document.getElementById('status').classList.remove('thinking');
+  showOverlay(msg);
+}
+function showOverlay(title){
+  document.getElementById('ov-text').textContent=title;
+  document.getElementById('ov-rematch').style.display='none';
+  document.getElementById('overlay').classList.add('show');
+}
+function hideOverlay(){document.getElementById('overlay').classList.remove('show');}
+// 战绩文本（复制后发给小miu复盘）
+function gameSummary(st){
+  var me=(NET.mode==='net')?(NET.role==='host'?st.human:st.ai):st.human;
+  var foe=netActive()?'对方':'小miu';
+  var hc=me==='red'?'红方':'蓝方';
+  var w=st.winner,res;
+  if(w==='draw')res='和棋';
+  else if(w&&w===me)res='我（'+hc+'）赢了'+foe+'🎉';
+  else res=foe+'赢了';
+  var log=st.log||[];
+  var parts=['军棋战绩：'+res,'共'+log.length+'手'];
+  var cap=0,both=0,bomb=0,flag=false;
+  for(var i=0;i<log.length;i++){
+    var e=log[i];
+    if(e.type==='capture'){
+      if(e.defT==='junqi')flag=true;
+      else if(e.result==='attacker')cap++;
+      else if(e.result==='both'){both++;if(e.attT==='zhadan')bomb++;}
+    }
+  }
+  if(flag)parts.push('工兵夺旗获胜');
+  if(cap)parts.push('吃子'+cap+'次');
+  if(both)parts.push('同归于尽'+both+'次'+(bomb?'(炸弹'+bomb+'次)':''));
+  return parts.join(' ｜ ');
+}
+function copyText(txt){
+  var ok=function(){toast('战绩已复制，发给小miu复盘吧');};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(ok,ok);}
+  else{
+    var ta=document.createElement('textarea');
+    ta.value=txt;ta.style.position='fixed';ta.style.top='0';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.focus();ta.select();
+    try{document.execCommand('copy');}catch(e){}
+    document.body.removeChild(ta);ok();
+  }
+}
+// 再来一局（含联机重赛流程）
+function doRematch(){
+  hideOverlay();
+  if(netActive()){
+    if(NET.role==='host'){newGame();NET.session.send({kind:'state',state:snapG(),rematch:true});}
+    else{
+      NET.session.send({kind:'rematch'});
+      document.getElementById('ov-text').textContent='已请求再来一局，等待对方同意…';
+      document.getElementById('overlay').classList.add('show');
+    }
+    return;
+  }
+  newGame();
+}
+function onRematchRequest(){
+  if(!netActive())return;
+  if(G&&G.over){
+    document.getElementById('ov-rematch').style.display='block';
+    document.getElementById('overlay').classList.add('show');
+  }else toast('对方想再来一局，等这局结束');
+}
+
+// ============ AI ============
+function evaluate(st,aiColor){
+  var score=0;
+  var vals={siling:100,junzhang:90,shizhang:80,lvzhang:70,tuanzhang:60,
+            yingzhang:50,lianzhang:40,paizhang:30,banzhang:20,gongbing:15,
+            dilei:25,zhadan:35,junqi:1000};
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    var p=st.board[y][x];
+    if(!p||!p.open)continue;
+    var v=vals[p.t]||10;
+    if(p.c===aiColor)score+=v;else score-=v;
+  }
+  return score;
+}
+function aiChoose(st,aiColor){
+  var moves=getAllMoves(st,aiColor);
+  if(!moves.length)return null;
+  var flips=moves.filter(function(m){return m.type==='flip';});
+  var actions=moves.filter(function(m){return m.type!=='flip';});
+  var curEval=evaluate(st,aiColor);
+  var best=null,bestScore=-Infinity,bestGain=-Infinity;
+  for(var i=0;i<actions.length;i++){
+    var m=actions[i];
+    var ns=cloneState(st);
+    _doMove(ns,m);
+    var s=evaluate(ns,aiColor);
+    if(m.type==='capture'){
+      var foeVal={siling:100,junzhang:90,shizhang:80,lvzhang:70,tuanzhang:60,
+                  yingzhang:50,lianzhang:40,paizhang:30,banzhang:20,gongbing:15,
+                  dilei:25,zhadan:10,junqi:1000}[m.foe.t]||10;
+      s+=foeVal*0.5;
+      if(m.foe.t==='junqi')s+=5000;
+      if(m.result==='both')s-=30;
+      if(m.result==='defender')s-=200;
+    }
+    s+=Math.random()*2;
+    var gain=s-curEval;
+    if(s>bestScore){bestScore=s;best=m;bestGain=gain;}
+  }
+  // Good capture (positive material gain, not suicide): always take it
+  if(best&&best.type==='capture'&&best.result==='attacker'&&bestGain>5){
+    return best;
+  }
+  // Early game: flip to reveal more pieces
+  var openCount=0;
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++)
+    if(st.board[y][x]&&st.board[y][x].open)openCount++;
+  if(flips.length&&openCount<10&&(!best||bestGain<20)){
+    return flips[Math.floor(Math.random()*flips.length)];
+  }
+  return best||flips[0];
+}
+function aiMove(){
+  if(NET.mode==='net')return;
+  if(!G||G.over){aiThinking=false;return;}
+  var m=aiChoose(G,G.ai||'blue');
+  if(m)applyAIMove(m,false);
+  afterOpponentMove();
+}
+function applyAIMove(m,peerIsHuman){
+  var lmAnim=null;
+  // If colors not assigned yet, AI color defaults to opposite of future human
+  // Actually AI flips too; first flip by AI sets human to opposite
+  if(m){
+    if(m.type==='flip'){
+      var info=doMove(G,m);
+      toast(oppName()+'翻开了'+PIECES[info.flipped.t].name);
+      if(!G.human&&info.flipped.c!=='neutral'){
+        // AI flipped first (non-neutral): AI is that color, human is opposite
+        G.ai=info.flipped.c;
+        G.human=(G.ai==='red'?'blue':'red');
+        toast('你是'+(G.human==='red'?'红':'蓝')+'方');
+      }
+    }else{
+      var attP={c:G.board[m.fy][m.fx].c,t:G.board[m.fy][m.fx].t};
+      var defP=m.type==='capture'?{c:G.board[m.ty][m.tx].c,t:G.board[m.ty][m.tx].t}:null;
+      lmAnim={fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty,img:imgSrc(attP.c,attP.t)};
+      doMove(G,m);
+      if(m.type==='capture'){
+        if(m.result==='attacker'){
+          recordCapture(defP.c,defP.t,peerIsHuman);
+          toast(oppName()+'吃掉了你的'+PIECES[defP.t].name+'！');
+          if(defP.t==='junqi'){G.over=true;G.winner=peerIsHuman?G.human:G.ai;}
+        }else if(m.result==='both'){
+          recordCapture(defP.c,defP.t,peerIsHuman);
+          recordCapture(attP.c,attP.t,!peerIsHuman);
+          toast('💥 同归于尽！');
+        }else{
+          recordCapture(attP.c,attP.t,!peerIsHuman);
+          toast(oppName()+'的'+PIECES[attP.t].name+'被你的'+PIECES[defP.t].name+'吃掉了！');
+        }
+      }
+    }
+  }
+  if(lmAnim)G.lastMove={fx:lmAnim.fx,fy:lmAnim.fy,tx:lmAnim.tx,ty:lmAnim.ty};
+  render();
+  if(lmAnim)animateLastMove(lmAnim);
+}
+
+// ============ Board click delegation (empty intersections) ============
+document.getElementById('board').addEventListener('click',function(e){
+  if(e.target.closest('.pt')||e.target.closest('.hint'))return;
+  // Calculate grid from click position
+  var rect=this.getBoundingClientRect();
+  // Account for padding: board is inset by 6% padding of wrap
+  var fx=(e.clientX-rect.left)/rect.width;
+  var fy=(e.clientY-rect.top)/rect.height;
+  var x=Math.round(fx*(COLS-1));
+  var y=Math.round(fy*(ROWS-1));
+  if(inB(x,y))onTap(x,y);
+});
+
+// ============ Init ============
+document.getElementById('newgame').addEventListener('click',onNewGameBtn);
+document.getElementById('btn-again').addEventListener('click',doRematch);
+document.getElementById('btn-agree').addEventListener('click',doRematch);
+document.getElementById('btn-share').addEventListener('click',function(){copyText(gameSummary(G));});
+function onNewGameBtn(){
+  if(netActive()){
+    if(NET.role==='host'){doRematch();}
+    else toast('等房主开新局');
+    return;
+  }
+  newGame();
+}
+if(typeof Netplay!=='undefined'){
+  Netplay.chooseMode(function(mode){
+    if(mode==='ai'){NET.mode='ai';newGame();}
+    else netLobby();
+  });
+}else newGame();
+</script>
+</body>
+</html>
