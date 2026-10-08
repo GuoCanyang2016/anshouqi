@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>暗兽棋 - 你 vs 小miu</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{margin:0;font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#26232b;color:#f0e8d8;min-height:100vh;display:flex;justify-content:center;}
+#app{width:100%;max-width:460px;padding:12px 14px 32px;}
+h1{margin:6px 0 0;text-align:center;color:#e8b64c;font-size:26px;letter-spacing:8px;font-family:"STKaiti","KaiTi",serif;}
+.sub{text-align:center;color:#b9a98f;font-size:13px;margin:2px 0 10px;}
+#status{text-align:center;min-height:24px;font-size:15px;color:#ffe9b8;margin-bottom:6px;}
+#counts{display:flex;justify-content:space-between;font-size:13px;color:#cfc2a8;margin-bottom:8px;padding:0 2px;}
+#counts b{font-size:17px;}
+.cr{color:#ff8a7a;}.cb{color:#7db9ff;}
+#board{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.card{position:relative;aspect-ratio:3/4;border-radius:10px;user-select:none;}
+.card.back{cursor:pointer;background:repeating-linear-gradient(45deg,#2a4f9e 0 10px,#213f84 10px 20px);border:3px solid #cbbf9d;display:flex;align-items:center;justify-content:center;}
+.card.back::after{content:'兽';font-family:"STKaiti","KaiTi",serif;font-size:36px;color:rgba(232,182,76,.55);}
+.card.back:active{transform:scale(.96);}
+.card.open{background:#f6efdc;border:3px solid #999;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:"STKaiti","KaiTi",serif;cursor:pointer;}
+.card.open.r{border-color:#c0392b;color:#c0392b;}
+.card.open.b{border-color:#2471a3;color:#2471a3;}
+.card .rk{position:absolute;top:3px;left:7px;font-size:13px;font-weight:bold;font-family:"PingFang SC","Microsoft YaHei",sans-serif;}
+.card .an{font-size:42px;line-height:1;}
+.card.empty{background:rgba(255,255,255,.03);border:2px dashed rgba(255,255,255,.10);}
+.card.sel{box-shadow:0 0 0 3px #e8b64c,0 6px 14px rgba(0,0,0,.45);transform:translateY(-4px);}
+.card.hint{cursor:pointer;}
+.card.hint::after{content:'';position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:rgba(46,160,90,.9);}
+.card.hint-cap{cursor:pointer;box-shadow:0 0 0 3px #e74c3c;animation:pulse 1s infinite;}
+@keyframes pulse{50%{box-shadow:0 0 0 7px rgba(231,76,60,.35);}}
+.card.lm::before{content:'';position:absolute;inset:0;border-radius:7px;background:rgba(90,160,255,.22);pointer-events:none;}
+#trays{margin-top:10px;font-size:13px;color:#b9a98f;}
+#trays .tray{margin:5px 0;min-height:28px;line-height:28px;}
+.chip{display:inline-block;min-width:26px;text-align:center;background:#f6efdc;border-radius:6px;padding:1px 6px;margin:2px;font-family:"STKaiti","KaiTi",serif;font-weight:bold;font-size:15px;}
+.chip.r{color:#c0392b;border:2px solid #c0392b;}
+.chip.b{color:#2471a3;border:2px solid #2471a3;}
+#controls{text-align:center;margin-top:12px;}
+button{background:#e8b64c;border:none;border-radius:10px;padding:11px 30px;font-size:16px;color:#3a2a12;cursor:pointer;font-weight:bold;}
+button:active{transform:scale(.96);}
+#rules{margin-top:14px;font-size:13px;color:#b9a98f;line-height:1.7;}
+#rules summary{cursor:pointer;color:#e8b64c;}
+#toast{position:fixed;left:50%;bottom:24%;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:50;white-space:nowrap;}
+#toast.show{opacity:1;}
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:60;}
+#overlay.show{display:flex;}
+#ov-card{background:#f6efdc;color:#3a2a12;border-radius:16px;padding:30px 44px;text-align:center;}
+#ov-text{font-size:26px;font-family:"STKaiti","KaiTi",serif;margin-bottom:18px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>暗兽棋</h1>
+  <div class="sub">翻牌吃子 · 你 vs 小miu</div>
+  <div id="status">…</div>
+  <div id="counts"><span class="cr" id="cnt-r"></span><span class="cb" id="cnt-b"></span></div>
+  <div id="board"></div>
+  <div id="trays">
+    <div class="tray">红方缴获：<span id="cap-r"></span></div>
+    <div class="tray">蓝方缴获：<span id="cap-b"></span></div>
+  </div>
+  <div id="controls"><button id="btn-new">新对局</button></div>
+  <details id="rules"><summary>玩法说明</summary>
+    16 张牌扣着摆 4×4。先翻一张牌，翻到什么颜色你就是什么颜色。<br>
+    每轮你可以<b>翻一张牌</b>，或者<b>走自己一张已翻开的牌</b>（横竖走一格）。<br>
+    吃子：大吃小（象&gt;狮&gt;虎&gt;豹&gt;狼&gt;狗&gt;猫&gt;鼠），同级也能吃；<b>鼠能吃象，象吃不了鼠</b>。<br>
+    吃光对方 8 张牌获胜。
+  </details>
+</div>
+<div id="toast"></div>
+<div id="overlay"><div id="ov-card"><div id="ov-text"></div><button id="btn-again">再来一局</button></div></div>
+<script>
+'use strict';
+/* ===== 核心逻辑（不依赖 DOM，可在 Node 下测试） ===== */
+var ANIMAL={1:'鼠',2:'猫',3:'狗',4:'狼',5:'豹',6:'虎',7:'狮',8:'象'};
+function aqOpp(c){return c==='r'?'b':'r';}
+function aqInB(x,y){return x>=0&&x<4&&y>=0&&y<4;}
+function aqNewState(){
+  var cards=[],c,r,i,j,t;
+  for(c=0;c<2;c++)for(r=1;r<=8;r++)cards.push({c:c===0?'r':'b',r:r,open:false});
+  for(i=cards.length-1;i>0;i--){j=(Math.random()*(i+1))|0;t=cards[i];cards[i]=cards[j];cards[j]=t;}
+  var b=[],x,y;
+  for(y=0;y<4;y++){b.push([]);for(x=0;x<4;x++)b[y].push(cards[y*4+x]);}
+  return {board:b,turn:null,human:null,ai:null,over:false,winner:null,draw:false,
+    passes:0,quiet:0,lastFlip:null,lastMove:null,capR:[],capB:[]};
+}
+function aqCanCapture(a,d){
+  if(!a||!d)return false;
+  if(a.r===1&&d.r===8)return true;   /* 鼠吃象 */
+  if(a.r===8&&d.r===1)return false;  /* 象不能吃鼠 */
+  return a.r>=d.r;                    /* 大吃小，同级吃 */
+}
+function aqPieceMoves(st,x,y,color){
+  var out=[],card=st.board[y][x];
+  if(!card||!card.open||card.c!==color)return out;
+  var D=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(var i=0;i<4;i++){
+    var nx=x+D[i][0],ny=y+D[i][1];
+    if(!aqInB(nx,ny))continue;
+    var t=st.board[ny][nx];
+    if(!t)out.push({fx:x,fy:y,tx:nx,ty:ny,cap:null});
+    else if(t.open&&t.c!==color&&aqCanCapture(card,t))out.push({fx:x,fy:y,tx:nx,ty:ny,cap:{r:t.r,c:t.c}});
+  }
+  return out;
+}
+function aqAllMoves(st,color){
+  var out=[],x,y;
+  for(y=0;y<4;y++)for(x=0;x<4;x++)out.push.apply(out,aqPieceMoves(st,x,y,color));
+  return out;
+}
+function aqFlipsLeft(st){
+  var n=0,x,y;
+  for(y=0;y<4;y++)for(x=0;x<4;x++)if(st.board[y][x]&&!st.board[y][x].open)n++;
+  return n;
+}
+function aqCountCards(st,color){
+  var n=0,x,y,c;
+  for(y=0;y<4;y++)for(x=0;x<4;x++){c=st.board[y][x];if(c&&c.c===color)n++;}
+  return n;
+}
+function aqCountOpen(st,color){
+  var n=0,x,y,c;
+  for(y=0;y<4;y++)for(x=0;x<4;x++){c=st.board[y][x];if(c&&c.c===color&&c.open)n++;}
+  return n;
+}
+function aqMaterial(st,color){
+  var s=0,x,y,c;
+  for(y=0;y<4;y++)for(x=0;x<4;x++){c=st.board[y][x];if(c&&c.c===color&&c.open)s+=c.r;}
+  return s;
+}
+function aqHasAnyAction(st,color){
+  if(aqFlipsLeft(st)>0)return true;
+  return aqAllMoves(st,color).length>0;
+}
+function aqNormalizeTurn(st){
+  var g=0;
+  while(!st.over&&st.turn&&!aqHasAnyAction(st,st.turn)&&g<4){
+    g++;st.passes++;
+    if(st.passes>=2){st.over=true;st.draw=true;break;}
+    st.turn=aqOpp(st.turn);
+  }
+}
+function aqDoFlip(st,x,y){
+  var card=st.board[y]&&st.board[y][x];
+  if(st.over||!card||card.open)return false;
+  card.open=true;
+  st.lastFlip={x:x,y:y};st.lastMove=null;st.passes=0;st.quiet=0;
+  if(!st.human){st.human=card.c;st.ai=aqOpp(card.c);st.turn=st.ai;}
+  else st.turn=aqOpp(st.turn);
+  aqNormalizeTurn(st);
+  return true;
+}
+function aqDoMove(st,m){
+  if(st.over)return null;
+  var a=st.board[m.fy]&&st.board[m.fy][m.fx];
+  if(!a||!a.open||a.c!==st.turn)return null;
+  var legal=aqPieceMoves(st,m.fx,m.fy,st.turn),ok=false,i;
+  for(i=0;i<legal.length;i++)if(legal[i].tx===m.tx&&legal[i].ty===m.ty){ok=true;break;}
+  if(!ok)return null;
+  var captured=st.board[m.ty][m.tx]||null;
+  st.board[m.ty][m.tx]=a;st.board[m.fy][m.fx]=null;
+  if(captured){if(a.c==='r')st.capR.push(captured);else st.capB.push(captured);}
+  st.lastMove={fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};st.lastFlip=null;st.passes=0;
+  if(captured)st.quiet=0;else st.quiet++;
+  if(aqCountCards(st,'r')===0){st.over=true;st.winner='b';}
+  else if(aqCountCards(st,'b')===0){st.over=true;st.winner='r';}
+  else if(st.quiet>=80){st.over=true;st.draw=true;}
+  else{st.turn=aqOpp(st.turn);aqNormalizeTurn(st);}
+  return captured||true;
+}
+/* ===== AI ===== */
+function aqAttackedBy(st,x,y,me,myRank){
+  var e=aqOpp(me),D=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(var i=0;i<4;i++){
+    var nx=x+D[i][0],ny=y+D[i][1];
+    if(!aqInB(nx,ny))continue;
+    var c=st.board[ny][nx];
+    if(c&&c.open&&c.c===e){
+      if(myRank===8&&c.r===1)return true;
+      if(myRank===1&&c.r===8)continue;
+      if(c.r>=myRank)return true;
+    }
+  }
+  return false;
+}
+function aqScoreMove(st,m,me){
+  var a=st.board[m.fy][m.fx],s;
+  if(m.cap){
+    s=40+m.cap.r*10-a.r*4;
+    if(aqAttackedBy(st,m.tx,m.ty,me,a.r))s-=a.r*8;
+  }else{
+    s=3;
+    if((m.tx===1||m.tx===2)&&(m.ty===1||m.ty===2))s+=2;
+    if(aqAttackedBy(st,m.tx,m.ty,me,a.r))s-=a.r*6+6;
+  }
+  return s;
+}
+function aqAiChoose(st){
+  var me=st.ai,moves=aqAllMoves(st,me),best=null,bs=-1e9,i,s;
+  for(i=0;i<moves.length;i++){
+    s=aqScoreMove(st,moves[i],me)+Math.random()*5;
+    if(s>bs){bs=s;best={type:'move',m:moves[i]};}
+  }
+  if(aqFlipsLeft(st)>0){
+    var fs=16+(aqCountOpen(st,me)<2?14:0)+(aqMaterial(st,aqOpp(me))-aqMaterial(st,me))*1.5+Math.random()*5;
+    if(fs>bs){
+      var f=[],x,y;
+      for(y=0;y<4;y++)for(x=0;x<4;x++)if(st.board[y][x]&&!st.board[y][x].open)f.push({x:x,y:y});
+      best={type:'flip',f:f[(Math.random()*f.length)|0]};
+    }
+  }
+  return best;
+}
+/* ===== UI 层（仅浏览器执行） ===== */
+var aqSt=null,aqSel=null,aqHints=[],aqAiThinking=false;
+var aqColorName={r:'红方',b:'蓝方'};
+function aqToast(msg){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(aqToast._h);aqToast._h=setTimeout(function(){t.classList.remove('show');},1400);
+}
+function aqChip(c){return '<span class="chip '+c.c+'">'+ANIMAL[c.r]+'</span>';}
+function aqRender(){
+  var st=aqSt,bd=document.getElementById('board'),x,y;
+  bd.innerHTML='';
+  for(y=0;y<4;y++)for(x=0;x<4;x++)(function(x,y){
+    var c=st.board[y][x],d=document.createElement('div');
+    if(!c)d.className='card empty';
+    else if(!c.open)d.className='card back';
+    else{d.className='card open '+c.c;d.innerHTML='<div class="rk">'+c.r+'</div><div class="an">'+ANIMAL[c.r]+'</div>';}
+    if(aqSel&&aqSel.x===x&&aqSel.y===y)d.classList.add('sel');
+    for(var i=0;i<aqHints.length;i++)if(aqHints[i].tx===x&&aqHints[i].ty===y)d.classList.add(aqHints[i].cap?'hint-cap':'hint');
+    if(st.lastMove&&((st.lastMove.fx===x&&st.lastMove.fy===y)||(st.lastMove.tx===x&&st.lastMove.ty===y)))d.classList.add('lm');
+    d.addEventListener('click',function(){aqOnTap(x,y);});
+    bd.appendChild(d);
+  })(x,y);
+  var s;
+  if(st.over)s=st.draw?'和棋！':(st.winner===st.human?'你赢了！':'小miu 获胜');
+  else if(!st.human)s='点一张牌翻开，你就是这个颜色';
+  else if(aqAiThinking||st.turn===st.ai)s='小miu 思考中…';
+  else s='轮到你走棋（可翻牌或走子）· 你是'+aqColorName[st.human];
+  document.getElementById('status').textContent=s;
+  document.getElementById('cnt-r').innerHTML='红方剩 <b>'+aqCountCards(st,'r')+'</b> 张';
+  document.getElementById('cnt-b').innerHTML='蓝方剩 <b>'+aqCountCards(st,'b')+'</b> 张';
+  document.getElementById('cap-r').innerHTML=st.capR.map(aqChip).join('')||'—';
+  document.getElementById('cap-b').innerHTML=st.capB.map(aqChip).join('')||'—';
+  if(st.over)aqShowOverlay();
+}
+function aqShowOverlay(){
+  var t=aqSt.draw?'和棋':(aqSt.winner===aqSt.human?'你赢了！':'小miu 获胜');
+  document.getElementById('ov-text').textContent=t;
+  document.getElementById('overlay').classList.add('show');
+}
+function aqHideOverlay(){document.getElementById('overlay').classList.remove('show');}
+function aqClearSel(){aqSel=null;aqHints=[];}
+function aqOnTap(x,y){
+  var st=aqSt;
+  if(st.over||aqAiThinking)return;
+  if(st.human&&st.turn!==st.human)return;
+  var c=st.board[y][x],i;
+  if(c&&!c.open){
+    aqDoFlip(st,x,y);aqClearSel();aqRender();
+    if(!st.over)aqAiTurn();
+    return;
+  }
+  if(aqSel&&aqSel.x===x&&aqSel.y===y){aqClearSel();aqRender();return;}
+  if(c&&c.open&&st.human&&c.c===st.human){
+    aqSel={x:x,y:y};aqHints=aqPieceMoves(st,x,y,st.human);aqRender();
+    if(!aqHints.length)aqToast('这张牌没有可走的位置');
+    return;
+  }
+  if(aqSel){
+    for(i=0;i<aqHints.length;i++)if(aqHints[i].tx===x&&aqHints[i].ty===y){
+      aqDoMove(st,aqHints[i]);aqClearSel();aqRender();
+      if(!st.over)aqAiTurn();
+      return;
+    }
+    aqClearSel();aqRender();return;
+  }
+}
+function aqAiTurn(){
+  var st=aqSt;
+  if(st.over||st.turn!==st.ai)return;
+  aqAiThinking=true;aqRender();
+  setTimeout(function(){
+    var ch=aqAiChoose(st);
+    if(ch){
+      if(ch.type==='flip')aqDoFlip(st,ch.f.x,ch.f.y);
+      else aqDoMove(st,ch.m);
+    }
+    aqAiThinking=false;aqClearSel();aqRender();
+  },650);
+}
+function aqNewGameUI(){
+  aqSt=aqNewState();aqClearSel();aqAiThinking=false;
+  aqHideOverlay();aqRender();
+}
+if(typeof document!=='undefined'&&document.getElementById){
+  document.getElementById('btn-new').addEventListener('click',aqNewGameUI);
+  document.getElementById('btn-again').addEventListener('click',function(){aqNewGameUI();});
+  aqNewGameUI();
+}
+</script>
+</body>
+</html>
