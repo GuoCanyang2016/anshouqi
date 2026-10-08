@@ -79,8 +79,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 <b>翻牌：</b>开局25张牌扣着打乱，每回合可翻一张或走一步。第一张翻到哪色，你就是哪方。<br>
 <b>走子：</b>除地雷、军旗外，沿线走1格。<br>
 <b>大小：</b>司令&gt;军长&gt;师长&gt;旅长&gt;团长&gt;营长&gt;连长&gt;排长&gt;班长&gt;工兵，大吃小。<br>
-<b>地雷：</b>不能动；任何子撞上都同归于尽，只有工兵能排雷（工兵存活）。<br>
-<b>炸弹：</b>主动撞或被撞，双方同归于尽（只能炸人，不能炸军旗）。炸弹不能空走：只有走到相邻有对方牌的位置（或直接撞上对方的牌）才能移动。<br>
+<b>地雷：</b>不能动；除炸弹外，任何子撞上都同归于尽，只有工兵能排雷（工兵存活）。炸弹不能碰地雷。<br>
+<b>炸弹：</b>主动撞或被撞，双方同归于尽（只能炸人，不能炸军旗、地雷）。炸弹不能空走：只有走到相邻有对方牌的位置（或直接撞上对方的牌）才能移动。<br>
 <b>军旗：</b>中立，不能动；只有工兵能拿，拿到军旗直接获胜。<br>
 <b>胜负：</b>工兵拿到军旗获胜；或对方无棋可走判负。<br>\n<b>同级：</b>同级相遇双方同归于尽。
 </div>
@@ -244,8 +244,12 @@ function captureResult(att,def){
     if(att.t==='gongbing')return 'attacker'; // engineer takes flag = win (handled separately)
     return null; // bomb and other pieces cannot touch the flag
   }
-  // Bomb involved: mutual destruction (people only, flag handled above)
-  if(att.t==='zhadan'||def.t==='zhadan')return 'both';
+  // Bomb involved: mutual destruction (people only; flag handled above, mines excluded)
+  if(att.t==='zhadan'){
+    if(def.t==='dilei')return null; // bomb cannot blow up mines
+    return 'both';
+  }
+  if(def.t==='zhadan')return 'both'; // ramming a bomb: mutual destruction
   // Mine as defender
   if(def.t==='dilei'){
     if(att.t==='gongbing')return 'attacker'; // engineer defuses
@@ -288,7 +292,8 @@ function bombNearEnemy(st,nx,ny,color){
     var ax=nx+DIRS[i][0],ay=ny+DIRS[i][1];
     if(!inB(ax,ay))continue;
     var q=st.board[ay][ax];
-    if(q&&q.open&&q.c!=='neutral'&&q.c!==color)return true;
+    // mines and the neutral flag don't count: bomb can't attack them
+    if(q&&q.open&&q.c!=='neutral'&&q.c!==color&&q.t!=='dilei')return true;
   }
   return false;
 }
@@ -836,7 +841,8 @@ function evaluate(st, aiColor){
         var cx=x+DIRS[d][0], cy=y+DIRS[d][1];
         if(!inB(cx,cy))continue;
         var q2=st.board[cy][cx];
-        if(q2&&q2.open&&q2.c!=='neutral'&&q2.c!==p.c) best=Math.max(best,PIECES[q2.t].rank);
+        // mines aren't prey: bomb can't blow them up
+        if(q2&&q2.open&&q2.c!=='neutral'&&q2.c!==p.c&&q2.t!=='dilei') best=Math.max(best,PIECES[q2.t].rank);
       }
       score += s*W.bombPrey*best;
     }
