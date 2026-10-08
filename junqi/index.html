@@ -746,57 +746,266 @@ function onRematchRequest(){
 }
 
 // ============ AI ============
-function evaluate(st,aiColor){
-  var score=0;
-  var vals={siling:100,junzhang:90,shizhang:80,lvzhang:70,tuanzhang:60,
-            yingzhang:50,lianzhang:40,paizhang:30,banzhang:20,gongbing:15,
-            dilei:25,zhadan:35,junqi:1000};
-  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
-    var p=st.board[y][x];
-    if(!p||!p.open)continue;
-    var v=vals[p.t]||10;
-    if(p.c===aiColor)score+=v;else score-=v;
+// Tunable weights. Base values hand-set; refined by self-play (tune.js).
+// Edit via tune.js results, not by gut feel.
+var AIW = {
+  mat: {siling:100, junzhang:90, shizhang:80, lvzhang:70, tuanzhang:60,
+        yingzhang:50, lianzhang:40, paizhang:30, banzhang:20, gongbing:15,
+        dilei:25, zhadan:35, junqi:1000},
+  threat: 6,        // own piece next to bigger open enemy piece: penalty per rank gap
+  threatBomb: 12,   // own piece next to open enemy bomb: penalty scaled by own rank
+  threatEqual: 3,   // own piece next to same-rank open enemy (mutual destruction risk)
+  flipRisk: 10,     // face-down card next to open enemy big piece (rank>=7)
+  engFlag: 6,       // engineer: bonus per step closer to open flag, scaled by endgame
+  engExposed: 14,   // engineer next to open enemy piece: penalty (early game)
+  bombPrey: 5,      // bomb next to open enemy piece: bonus per prey rank
+  mineBlock: 5,     // own mine next to own engineer: penalty (blocks the path)
+  mobility: 1.2,    // per movable-piece difference
+  flagGuard: 40,    // open enemy engineer within 3 of open flag: penalty
+  flipUncert: 12,   // search discount for flips (real game can't see under the card)
+  jitter: 2,        // random tiebreak amplitude (0 = deterministic, for tests/tuning)
+  timeMs: 800,      // hard time budget per move (ms)
+  maxDepth: 4
+};
+var AI_ABORT = false;
+
+function manhattan(ax,ay,bx,by){ return Math.abs(ax-bx)+Math.abs(ay-by); }
+
+function evaluate(st, aiColor){
+  var W = AIW, score = 0;
+  var opp = (aiColor==='red') ? 'blue' : 'red';
+  var openN = 0, flagX = -1, flagY = -1, x, y, d;
+  for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
+    var q0=st.board[y][x];
+    if(q0&&q0.open){ openN++; if(q0.t==='junqi'){flagX=x;flagY=y;} }
   }
+  var endF = openN/25;
+  var myMob = 0, opMob = 0;
+  for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
+    var p=st.board[y][x];
+    if(!p) continue;
+    if(!p.open){
+      // Flip risk: face-down card next to open big pieces.
+      // Cards next to MY big pieces are safer for me; next to ENEMY big pieces are dangerous.
+      var dMine=0, dOpp=0;
+      for(d=0;d<4;d++){
+        var ax=x+DIRS[d][0], ay=y+DIRS[d][1];
+        if(!inB(ax,ay))continue;
+        var nb=st.board[ay][ax];
+        if(nb&&nb.open&&nb.c!=='neutral'&&PIECES[nb.t].rank>=7){
+          if(nb.c===opp) dMine=1; else dOpp=1;
+        }
+      }
+      score += W.flipRisk*0.4*(dOpp-dMine);
+      continue;
+    }
+    var v=(W.mat[p.t]!==undefined)?W.mat[p.t]:10;
+    var s = p.c===aiColor ? 1 : -1; // open pieces are always red/blue (flag handled below)
+    if(p.t==='junqi') continue; // neutral flag: no material, handled via flagGuard/engFlag
+    score += s*v;
+    if(PIECES[p.t].canMove){ if(s>0)myMob++; else opMob++; }
+    // Threat scan: open enemy pieces next to me
+    var exposed=false;
+    for(d=0;d<4;d++){
+      var bx=x+DIRS[d][0], by=y+DIRS[d][1];
+      if(!inB(bx,by))continue;
+      var e=st.board[by][bx];
+      if(!e||!e.open||e.c===p.c||e.c==='neutral')continue;
+      if(e.t==='zhadan'){
+        score -= s*W.threatBomb*(PIECES[p.t].rank/10);
+        exposed=true;
+      }else if(e.t==='dilei'){
+        // static mine: not a threat by itself (walking into it is the attacker's choice)
+      }else{
+        var er=PIECES[e.t].rank, pr=PIECES[p.t].rank;
+        if(er>pr) score -= s*W.threat*(er-pr);
+        else if(er===pr&&pr>0){ score -= s*W.threatEqual; }
+        exposed=true;
+      }
+    }
+    if(p.t==='gongbing'){
+      if(flagX>=0){
+        var df=manhattan(x,y,flagX,flagY);
+        score += s*W.engFlag*endF*(8-Math.min(df,8));
+      }
+      if(exposed) score -= s*W.engExposed*(1-endF*0.5);
+    }
+    if(p.t==='zhadan'){
+      var best=0;
+      for(d=0;d<4;d++){
+        var cx=x+DIRS[d][0], cy=y+DIRS[d][1];
+        if(!inB(cx,cy))continue;
+        var q2=st.board[cy][cx];
+        if(q2&&q2.open&&q2.c!=='neutral'&&q2.c!==p.c) best=Math.max(best,PIECES[q2.t].rank);
+      }
+      score += s*W.bombPrey*best;
+    }
+    if(p.t==='dilei'){
+      for(d=0;d<4;d++){
+        var dx=x+DIRS[d][0], dy=y+DIRS[d][1];
+        if(!inB(dx,dy))continue;
+        var q3=st.board[dy][dx];
+        if(q3&&q3.open&&q3.c===p.c&&q3.t==='gongbing') score -= s*W.mineBlock;
+      }
+    }
+  }
+  // Enemy engineer closing in on the open flag: urgent
+  if(flagX>=0){
+    for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
+      var pe=st.board[y][x];
+      if(pe&&pe.open&&pe.c===opp&&pe.t==='gongbing'){
+        var dd=manhattan(x,y,flagX,flagY);
+        if(dd<=3) score -= W.flagGuard*(4-dd)/4;
+      }
+    }
+  }
+  score += W.mobility*(myMob-opMob);
+  if(W.jitter>0) score += (Math.random()*2-1)*W.jitter;
   return score;
 }
-function aiChoose(st,aiColor){
-  var moves=getAllMoves(st,aiColor);
-  if(!moves.length)return null;
-  var flips=moves.filter(function(m){return m.type==='flip';});
-  var actions=moves.filter(function(m){return m.type!=='flip';});
-  var curEval=evaluate(st,aiColor);
-  var best=null,bestScore=-Infinity,bestGain=-Infinity;
-  for(var i=0;i<actions.length;i++){
-    var m=actions[i];
-    var ns=cloneState(st);
-    _doMove(ns,m);
-    var s=evaluate(ns,aiColor);
-    if(m.type==='capture'){
-      var foeVal={siling:100,junzhang:90,shizhang:80,lvzhang:70,tuanzhang:60,
-                  yingzhang:50,lianzhang:40,paizhang:30,banzhang:20,gongbing:15,
-                  dilei:25,zhadan:10,junqi:1000}[m.foe.t]||10;
-      s+=foeVal*0.5;
-      if(m.foe.t==='junqi')s+=5000;
-      if(m.result==='both')s-=30;
-      if(m.result==='defender')s-=200;
-    }
-    s+=Math.random()*2;
-    var gain=s-curEval;
-    if(s>bestScore){bestScore=s;best=m;bestGain=gain;}
-  }
-  // Good capture (positive material gain, not suicide): always take it
-  if(best&&best.type==='capture'&&best.result==='attacker'&&bestGain>5){
-    return best;
-  }
-  // Early game: flip to reveal more pieces
-  var openCount=0;
-  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++)
-    if(st.board[y][x]&&st.board[y][x].open)openCount++;
-  if(flips.length&&openCount<10&&(!best||bestGain<20)){
-    return flips[Math.floor(Math.random()*flips.length)];
-  }
-  return best||flips[0];
+
+// Which slot ('human'/'ai') belongs to aiColor? Falls back to 'ai' before colors assigned.
+function aiSlotOf(st, aiColor){
+  if(st.ai===aiColor) return 'ai';
+  if(st.human===aiColor) return 'human';
+  return 'ai';
 }
+// Legal moves for a slot inside search.
+function aiMovesFor(st, slot, aiColor){
+  var color = st[slot] || aiColor;
+  return getAllMoves(st, color);
+}
+// Apply a move inside search: color assignment on first flip, turn flip, flag-capture win.
+function aiDoMove(st, m){
+  var mover = st.turn;
+  var info = doMove(st, m);
+  if(m.type==='flip' && !st.human && info.flipped.c!=='neutral'){
+    var c = info.flipped.c;
+    st[mover]=c;
+    st[mover==='human'?'ai':'human']=(c==='red'?'blue':'red');
+  }
+  if(m.type==='capture' && m.result==='attacker' && m.foe && m.foe.t==='junqi' && !st.over){
+    st.over=true;
+    st.winner=st[mover]||null;
+  }
+  st.turn=(mover==='human'?'ai':'human');
+  if(!st.over && faceDownCount(st)===0) updateWinState(st);
+  return info;
+}
+function termScore(st, aiSlot, aiColor){
+  if(st.winner==='draw') return 0;
+  var myC = st[aiSlot]||aiColor;
+  return st.winner===myC ? 100000 : -100000;
+}
+// Move ordering for alpha-beta: captures (MVV-LVA) > flips (safe first) > quiet moves.
+function orderMoves(st, moves, aiColor){
+  var opp = aiColor==='red'?'blue':'red';
+  for(var i=0;i<moves.length;i++){
+    var m=moves[i], sc=0;
+    if(m.type==='capture'){
+      var vv=(AIW.mat[m.foe.t]!==undefined)?AIW.mat[m.foe.t]:10;
+      sc=10000+vv;
+      if(m.foe.t==='junqi') sc+=50000;
+      if(m.result==='both') sc-=500;
+      if(m.result==='defender') sc-=20000;
+    }else if(m.type==='flip'){
+      sc=1000;
+      for(var d=0;d<4;d++){
+        var ax=m.x+DIRS[d][0], ay=m.y+DIRS[d][1];
+        if(!inB(ax,ay))continue;
+        var q=st.board[ay][ax];
+        if(q&&q.open&&q.c===opp&&PIECES[q.t].rank>=7) sc-=AIW.flipRisk*2;
+      }
+    }else{
+      sc=100;
+    }
+    m._os=sc;
+  }
+  moves.sort(function(a,b){return b._os-a._os;});
+}
+// Quiescence: extend captures only, so we don't stop mid-tactics.
+function quiesce(st, alpha, beta, aiSlot, aiColor, deadline, qd){
+  if(Date.now()>deadline){ AI_ABORT=true; return 0; }
+  if(st.over) return termScore(st,aiSlot,aiColor);
+  var maximizing=(st.turn===aiSlot);
+  var stand=evaluate(st,aiColor);
+  if(maximizing){
+    if(stand>=beta) return beta;
+    if(stand>alpha) alpha=stand;
+  }else{
+    if(stand<=alpha) return alpha;
+    if(stand<beta) beta=stand;
+  }
+  if(qd>=6) return maximizing?alpha:beta;
+  var moves=aiMovesFor(st, st.turn, aiColor).filter(function(m){return m.type==='capture';});
+  if(!moves.length) return maximizing?alpha:beta;
+  orderMoves(st,moves,aiColor);
+  for(var i=0;i<moves.length;i++){
+    var ns=cloneState(st);
+    aiDoMove(ns,moves[i]);
+    var v=quiesce(ns,alpha,beta,aiSlot,aiColor,deadline,qd+1);
+    if(AI_ABORT) return 0;
+    if(maximizing){ if(v>alpha)alpha=v; if(alpha>=beta)break; }
+    else { if(v<beta)beta=v; if(beta<=alpha)break; }
+  }
+  return maximizing?alpha:beta;
+}
+function minimax(st, depth, alpha, beta, aiSlot, aiColor, deadline){
+  if(Date.now()>deadline){ AI_ABORT=true; return 0; }
+  if(st.over) return termScore(st,aiSlot,aiColor);
+  if(depth<=0) return quiesce(st,alpha,beta,aiSlot,aiColor,deadline,0);
+  var moves=aiMovesFor(st, st.turn, aiColor);
+  if(!moves.length){
+    // No legal moves but game not over (shouldn't happen): pass the turn, small penalty.
+    var ps=cloneState(st);
+    ps.turn=(st.turn==='human'?'ai':'human');
+    return minimax(ps,depth-1,alpha,beta,aiSlot,aiColor,deadline)-5;
+  }
+  orderMoves(st,moves,aiColor);
+  var maximizing=(st.turn===aiSlot);
+  for(var i=0;i<moves.length;i++){
+    var moverSlot=st.turn;
+    var ns=cloneState(st);
+    aiDoMove(ns,moves[i]);
+    var v=minimax(ns,depth-1,alpha,beta,aiSlot,aiColor,deadline);
+    if(AI_ABORT) return 0;
+    // Flip uncertainty discount: search sees under the card, real game doesn't.
+    if(moves[i].type==='flip') v += (moverSlot===aiSlot?-AIW.flipUncert:AIW.flipUncert);
+    if(maximizing){ if(v>alpha)alpha=v; if(alpha>=beta)break; }
+    else { if(v<beta)beta=v; if(beta<=alpha)break; }
+  }
+  return maximizing?alpha:beta;
+}
+function aiChoose(st, aiColor){
+  var aiSlot=aiSlotOf(st,aiColor);
+  st=cloneState(st);
+  st.turn=aiSlot; // aiChoose is always called for the AI's own move
+  var rootMoves=aiMovesFor(st,aiSlot,aiColor);
+  if(!rootMoves.length) return null;
+  if(rootMoves.length===1) return rootMoves[0];
+  orderMoves(st,rootMoves,aiColor);
+  var deadline=Date.now()+AIW.timeMs;
+  var best=rootMoves[0], bestScore=-Infinity;
+  AI_ABORT=false;
+  for(var depth=1; depth<=AIW.maxDepth; depth++){
+    var cur=null, curScore=-Infinity, aborted=false;
+    for(var i=0;i<rootMoves.length;i++){
+      var ns=cloneState(st);
+      aiDoMove(ns,rootMoves[i]);
+      var v=minimax(ns,depth-1,-Infinity,Infinity,aiSlot,aiColor,deadline);
+      if(AI_ABORT){ aborted=true; break; }
+      if(rootMoves[i].type==='flip') v-=AIW.flipUncert; // root mover is always AI
+      if(v>curScore){ curScore=v; cur=rootMoves[i]; }
+    }
+    if(aborted) break;
+    best=cur; bestScore=curScore;
+    orderMoves(st,rootMoves,aiColor); // refresh ordering for next iteration
+    if(bestScore>90000||bestScore<-90000) break; // forced result found
+    if(Date.now()>deadline) break;
+  }
+  return best;
+}
+
 function aiMove(){
   if(NET.mode==='net')return;
   if(!G||G.over){aiThinking=false;return;}
