@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>兽棋 - 你 vs 小miu</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#1a1a24;color:#eee;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:10px;user-select:none}
+#topbar{width:100%;max-width:480px;display:flex;justify-content:space-between;align-items:center;padding:8px 4px;font-size:15px}
+#status{font-weight:bold;color:#ffd76a}
+#controls{display:flex;gap:8px}
+#controls button{background:#4a4a58;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer}
+#controls button:active{background:#5c5c6c}
+#board-wrap{position:relative;width:100%;max-width:480px;aspect-ratio:1/1;background:#2c2c34;border-radius:12px;padding:11%;margin-bottom:12px}
+#board{position:relative;width:100%;height:100%}
+#grid-svg{position:absolute;inset:0;width:100%;height:100%}
+.card{position:absolute;transform:translate(-50%,-50%);cursor:pointer;transition:transform .15s;z-index:2}
+.card img{width:100%;height:100%;object-fit:contain;display:block;border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.card.selected{transform:translate(-50%,-50%) scale(1.12);z-index:5}
+.card.selected img{box-shadow:0 0 0 3px #ffd76a,0 2px 8px rgba(0,0,0,.5)}
+.card-back{background:linear-gradient(135deg,#2a4a7a,#1a2a4a);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:28px;color:#5a7aba;border:2px solid #3a5a8a}
+.hint{position:absolute;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:50%;background:#2ecc71;z-index:3;pointer-events:none;box-shadow:0 0 8px #2ecc71;animation:hintPulse 1.2s ease-in-out infinite}
+@keyframes hintPulse{0%,100%{transform:translate(-50%,-50%) scale(1);opacity:.85}50%{transform:translate(-50%,-50%) scale(1.3);opacity:1}}
+.hint.cap{width:28px;height:28px;background:transparent;border:3px solid #e74c3c;box-shadow:0 0 10px #e74c3c;animation:hintPulse 1.2s ease-in-out infinite}
+.lm{position:absolute;transform:translate(-50%,-50%);z-index:4;pointer-events:none;border-radius:6px;aspect-ratio:2/3}
+.lm.from{box-shadow:0 0 0 3px rgba(255,180,0,.95),0 0 16px rgba(255,180,0,.55)}
+.lm.to{box-shadow:0 0 0 3px rgba(46,204,113,.95),0 0 16px rgba(46,204,113,.55)}
+.move-ghost{position:absolute;transform:translate(-50%,-50%);z-index:60;pointer-events:none;transition:left .45s ease,top .45s ease}
+.move-ghost img{width:100%;display:block;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+.hole-label{position:absolute;transform:translate(-50%,-50%);color:#8a7a5a;font-size:13px;font-weight:bold;pointer-events:none;z-index:1}
+#captured{width:100%;max-width:480px;display:flex;justify-content:space-between;padding:8px 4px;font-size:13px;margin-top:4px}
+.cap-group{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.cap-group img{width:28px;height:40px;object-fit:contain;border-radius:3px}
+#rules{width:100%;max-width:480px;background:#2a2a36;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.7;color:#aaa;margin-top:24px}
+#rules b{color:#ffd76a}
+#toast{position:fixed;left:50%;bottom:25%;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;display:none;z-index:100}
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:50}
+#overlay.show{display:flex}
+#ov-card{background:#f5ecd8;color:#333;border-radius:14px;padding:32px 44px;text-align:center}
+#ov-card h2{margin-bottom:12px}
+#btn-again{background:#b73a2b;color:#fff;border:none;border-radius:8px;padding:12px 32px;font-size:16px;cursor:pointer;margin-top:8px}
+.thinking{color:#7abaff!important}
+</style>
+</head>
+<body>
+<script>
+// Preload all card images to avoid flip stutter
+(function(){
+  var colors=['red','blue'];
+  for(var c=0;c<2;c++)for(var r=1;r<=8;r++){
+    var img=new Image();
+    img.src='img/'+colors[c]+'_'+r+'.png';
+  }
+})();
+</script>
+<div id="topbar">
+  <span id="status">点击翻牌开始</span>
+  <div id="controls"><button id="btn-new">新对局</button></div>
+</div>
+<div id="board-wrap"><div id="board"></div></div>
+<div id="captured">
+  <div><div style="margin-bottom:4px">你的缴获</div><div class="cap-group" id="cap-human"></div></div>
+  <div><div style="margin-bottom:4px">小miu的缴获</div><div class="cap-group" id="cap-ai"></div></div>
+</div>
+<div id="rules">
+  <b>玩法：</b>点牌翻面，首翻定颜色。轮流翻牌或走子。<br>
+  吃子：象&gt;狮&gt;虎&gt;豹&gt;狼&gt;狗&gt;猫&gt;鼠；<b>同级相遇可点选同归于尽</b>（双方都移除，也可不走）；<b>鼠能吃象，象吃不了鼠</b>。<br>
+  <b>鼠洞：</b>只有老鼠能进出中间的鼠洞（四个角），鼠洞里的老鼠吃不着。<br>
+  吃光对方8张获胜。
+</div>
+<div id="toast"></div>
+<div id="overlay"><div id="ov-card"><h2 id="ov-text"></h2><div><button id="btn-again">再来一局</button> <button id="btn-share" style="margin-left:10px">复制战绩</button></div><div id="share-hint" style="font-size:12px;color:#888;margin-top:10px">复制后发给小miu，它能帮你复盘</div></div></div>
+<script>
+/* ===== Game State ===== */
+var COLS=4, ROWS=4;
+// Hole corners: the 4 intersections around the center hole
+var HOLE_CORNERS=[[1,1],[2,1],[1,2],[2,2]];
+var HOLE_CX=1.5, HOLE_CY=1.5; // center of hole for rendering
+
+var G; // game state
+
+function newState(){
+  // Create 16 cards: 8 red, 8 blue, ranks 1-8
+  var cards=[];
+  for(var r=1;r<=8;r++){cards.push({c:'red',r:r,open:false});cards.push({c:'blue',r:r,open:false});}
+  // Shuffle
+  for(var i=cards.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=cards[i];cards[i]=cards[j];cards[j]=t;}
+  // Place on 16 intersections (one card per intersection)
+  var pts=[];
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++)pts.push([x,y]);
+  for(var i=pts.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=pts[i];pts[i]=pts[j];pts[j]=t;}
+  
+  var board=[];
+  for(var y=0;y<ROWS;y++){board.push([]);for(var x=0;x<COLS;x++)board[y].push(null);}
+  for(var i=0;i<16;i++){var p=pts[i];board[p[1]][p[0]]=cards[i];}
+  
+  return {
+    board:board,
+    hole:null, // card in hole, or null
+    turn:'human', // 'human' or 'ai'
+    human:null, // 'red' or 'blue', set by first flip
+    ai:null,
+    over:false,
+    winner:null,
+    moveCount:0,
+    lastFlip:0,
+    capHuman:[], // pieces the human has captured (AI's lost pieces)
+    capAI:[],    // pieces the AI has captured (human's lost pieces)
+    log:[]       // real-game action log (for share); minimax clones don't use it
+  };
+}
+
+function inBounds(x,y){return x>=0&&x<COLS&&y>=0&&y<ROWS;}
+function isHoleCorner(x,y){
+  for(var i=0;i<HOLE_CORNERS.length;i++)if(HOLE_CORNERS[i][0]===x&&HOLE_CORNERS[i][1]===y)return true;
+  return false;
+}
+
+/* ===== Capture Rules ===== */
+function canCapture(att, def){
+  // att, def are {r: rank}
+  if(att.r===1&&def.r===8)return true;  // rat eats elephant
+  if(att.r===8&&def.r===1)return false; // elephant cannot eat rat
+  return att.r>=def.r;
+}
+
+/* ===== Move Generation ===== */
+function getMoves(st, side){
+  // side: 'red' or 'blue' (the color), returns list of moves
+  // move: {type:'flip', x, y} or {type:'move', fx, fy, tx, ty} or {type:'enterHole', fx, fy} or {type:'exitHole', tx, ty}
+  var moves=[];
+  var x,y;
+  // Flips
+  for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
+    var c=st.board[y][x];
+    if(c&&!c.open)moves.push({type:'flip',x:x,y:y});
+  }
+  // Piece moves
+  for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
+    var c=st.board[y][x];
+    if(!c||!c.open||c.c!==side)continue;
+    var D=[[1,0],[-1,0],[0,1],[0,-1]];
+    for(var i=0;i<4;i++){
+      var nx=x+D[i][0], ny=y+D[i][1];
+      if(!inBounds(nx,ny))continue;
+      var t=st.board[ny][nx];
+      if(!t){
+        moves.push({type:'move',fx:x,fy:y,tx:nx,ty:ny,cap:null});
+      }else if(t.open&&t.c!==side){
+        if(c.r===t.r){
+          // Equal ranks: optional mutual destruction (player chooses)
+          moves.push({type:'sacrifice',fx:x,fy:y,tx:nx,ty:ny,foe:{r:t.r,c:t.c}});
+        }else if(canCapture(c,t)){
+          moves.push({type:'move',fx:x,fy:y,tx:nx,ty:ny,cap:{r:t.r,c:t.c}});
+        }
+      }
+    }
+    // Mouse can enter hole from corner
+    if(c.r===1&&isHoleCorner(x,y)&&!st.hole){
+      moves.push({type:'enterHole',fx:x,fy:y});
+    }
+  }
+  // Mouse in hole can exit to any corner
+  if(st.hole&&st.hole.c===side){
+    for(var i=0;i<HOLE_CORNERS.length;i++){
+      var hx=HOLE_CORNERS[i][0], hy=HOLE_CORNERS[i][1];
+      var t=st.board[hy][hx];
+      if(!t){
+        moves.push({type:'exitHole',tx:hx,ty:hy});
+      }else if(t.open&&t.c!==side){
+        if(st.hole.r===t.r){
+          moves.push({type:'sacrifice',fromHole:true,tx:hx,ty:hy,foe:{r:t.r,c:t.c}});
+        }else if(canCapture(st.hole,t)){
+          moves.push({type:'exitHole',tx:hx,ty:hy,cap:{r:t.r,c:t.c}});
+        }
+      }
+    }
+  }
+  return moves;
+}
+
+function doMove(st, m){
+  // Apply move to state, return captured card or null
+  var cap=null;
+  if(m.type==='flip'){
+    var c=st.board[m.y][m.x];
+    c.open=true;
+    // First flip determines colors
+    if(!st.human){
+      // The flipper gets the flipped color
+      // turn is 'human' or 'ai', so:
+      if(st.turn==='human'){st.human=c.c;st.ai=(c.c==='red'?'blue':'red');}
+      else{st.ai=c.c;st.human=(c.c==='red'?'blue':'red');}
+    }
+    st.lastFlip=st.moveCount;
+  }else if(m.type==='move'){
+    var pc=st.board[m.fy][m.fx];
+    var tc=st.board[m.ty][m.tx];
+    if(tc){cap=tc;recordCapture(st,tc.c,tc.r);}
+    st.board[m.ty][m.tx]=pc;
+    st.board[m.fy][m.fx]=null;
+  }else if(m.type==='sacrifice'){
+    // Mutual destruction: both pieces removed from board
+    var att=m.fromHole?st.hole:st.board[m.fy][m.fx];
+    var tc2=st.board[m.ty][m.tx];
+    if(m.fromHole)st.hole=null; else st.board[m.fy][m.fx]=null;
+    st.board[m.ty][m.tx]=null;
+    recordCapture(st,att.c,att.r); // human's lost piece -> capAI
+    recordCapture(st,tc2.c,tc2.r); // AI's lost piece -> capHuman
+    cap={r:tc2.r,c:tc2.c,sacrifice:true,own:{r:att.r,c:att.c}};
+  }else if(m.type==='enterHole'){
+    st.hole=st.board[m.fy][m.fx];
+    st.board[m.fy][m.fx]=null;
+  }else if(m.type==='exitHole'){
+    var tc=st.board[m.ty][m.tx];
+    if(tc){cap=tc;recordCapture(st,tc.c,tc.r);}
+    st.board[m.ty][m.tx]=st.hole;
+    st.hole=null;
+  }
+  st.moveCount++;
+  // Switch turn
+  st.turn=(st.turn==='human'?'ai':'human');
+  return cap;
+}
+
+// Track a captured piece explicitly: the loser (color loserC, rank loserR)
+// is added to the winner's capture list.
+function recordCapture(st, loserC, loserR){
+  if(!st.human)return; // colors not determined yet; captures can't happen anyway
+  var list=(loserC===st.human)?st.capAI:st.capHuman;
+  list.push({c:loserC,r:loserR});
+}
+
+function countCards(st, color){
+  var n=0;
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    var c=st.board[y][x];
+    if(c&&c.c===color)n++;
+  }
+  if(st.hole&&st.hole.c===color)n++;
+  return n;
+}
+
+function checkWin(st){
+  var hr=countCards(st,'red'), hb=countCards(st,'blue');
+  if(hr===0&&hb===0)return 'draw';
+  if(hr===0)return 'blue';
+  if(hb===0)return 'red';
+  // 80 moves without capture = draw (prevent infinite)
+  if(st.moveCount-st.lastFlip>160)return 'draw';
+  return null;
+}
+
+/* ===== 战绩分享：对局记录与摘要（只走真实对局；AI 推演的克隆不走这里） ===== */
+var RANK_NAME={1:'鼠',2:'猫',3:'狗',4:'狼',5:'豹',6:'虎',7:'狮',8:'象'};
+// 注意：UI 段会把全局 doMove 重赋值为界面包装函数；这里先抓住原始核心实现。
+var doMoveCore=doMove;
+// 真实走子统一入口：先记录动作，再调核心 doMove。minimax 内部仍用 _doMove 直调克隆。
+function realMove(st,m){
+  var actor=st.turn; // 'human' | 'ai'
+  var e=null,cap=null;
+  if(m.type==='flip'){
+    cap=doMoveCore(st,m);
+    var c=st.board[m.y][m.x];
+    e={by:actor,type:'flip',n:st.moveCount,x:m.x,y:m.y,cc:c.c,cr:c.r};
+  }else{
+    if(m.type==='move'){
+      var pc=st.board[m.fy][m.fx];
+      e={by:actor,type:'move',n:st.moveCount+1,pr:pc.r,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};
+    }else if(m.type==='sacrifice'){
+      var att=m.fromHole?st.hole:st.board[m.fy][m.fx];
+      e={by:actor,type:'sacrifice',n:st.moveCount+1,ownR:att.r,foeR:(m.foe?m.foe.r:null),fromHole:!!m.fromHole,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};
+    }else if(m.type==='enterHole'){
+      var pc2=st.board[m.fy][m.fx];
+      e={by:actor,type:'enterHole',n:st.moveCount+1,pr:pc2.r,fx:m.fx,fy:m.fy};
+    }else if(m.type==='exitHole'){
+      var pc3=st.hole;
+      e={by:actor,type:'exitHole',n:st.moveCount+1,pr:pc3.r,tx:m.tx,ty:m.ty};
+    }
+    // Last-move highlight for the real game (minimax uses _doMove on clones, never here)
+    if(st===G&&m.type!=='flip'){
+      var lmImg=null,lmFx=m.fx,lmFy=m.fy,lmTx=m.tx,lmTy=m.ty;
+      if(m.type==='move'){
+        var _pc=st.board[m.fy][m.fx];
+        if(_pc)lmImg='img/'+_pc.c+'_'+_pc.r+'.png';
+      }else if(m.type==='sacrifice'){
+        var _at=m.fromHole?st.hole:st.board[m.fy][m.fx];
+        if(_at)lmImg='img/'+_at.c+'_'+_at.r+'.png';
+        if(m.fromHole){lmFx=HOLE_CX;lmFy=HOLE_CY;}
+      }else if(m.type==='enterHole'){
+        var _pc2=st.board[m.fy][m.fx];
+        if(_pc2)lmImg='img/'+_pc2.c+'_'+_pc2.r+'.png';
+        lmTx=HOLE_CX;lmTy=HOLE_CY;
+      }else if(m.type==='exitHole'){
+        var _pc3=st.hole;
+        if(_pc3)lmImg='img/'+_pc3.c+'_'+_pc3.r+'.png';
+        lmFx=HOLE_CX;lmFy=HOLE_CY;
+      }
+      if(lmImg){
+        uiLastMove={fx:lmFx,fy:lmFy,tx:lmTx,ty:lmTy};
+        uiAnimateMove={fx:lmFx,fy:lmFy,tx:lmTx,ty:lmTy,img:lmImg};
+      }
+    }
+    cap=doMoveCore(st,m);
+    if(e&&(e.type==='move'||e.type==='exitHole')&&cap)e.capR=cap.r;
+  }
+  if(e&&st.log)st.log.push(e);
+  return cap;
+}
+// 生成一局摘要文本（复制后发给小miu复盘）
+function gameSummary(st){
+  var hc=st.human==='red'?'红方':'蓝方';
+  var w=st.winner,res;
+  if(w==='draw')res='和棋';
+  else if(w===st.human)res='我（'+hc+'）赢了小miu🎉';
+  else res='小miu赢了';
+  var parts=['暗兽棋战绩：'+res,'共'+st.moveCount+'手','缴获 我'+st.capHuman.length+'-'+st.capAI.length+'小miu'];
+  var holes=[],ratEle=0,sac=0,i,e;
+  for(i=0;i<st.log.length;i++){
+    e=st.log[i];
+    if(e.type==='enterHole')holes.push((e.by==='human'?'我':'小miu')+'第'+e.n+'手鼠进洞');
+    else if(e.type==='sacrifice')sac++;
+    else if((e.type==='move'||e.type==='exitHole')&&e.pr===1&&e.capR===8)ratEle++;
+  }
+  if(holes.length)parts.push(holes.join('，'));
+  if(ratEle)parts.push('鼠吃象'+ratEle+'次');
+  if(sac)parts.push('同归于尽'+sac+'次');
+  return parts.join(' ｜ ');
+}
+
+/* ===== AI (2-ply minimax with alpha-beta) ===== */
+var RANK_VAL={1:100,2:30,3:40,4:60,5:90,6:140,7:180,8:250};
+
+function evaluate(st, aiColor){
+  // Positive = good for aiColor
+  var score=0;
+  var oppColor=(aiColor==='red'?'blue':'red');
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    var c=st.board[y][x];
+    if(!c||!c.open)continue;
+    var v=RANK_VAL[c.r];
+    // Center control bonus
+    var cx=Math.abs(x-1.5), cy=Math.abs(y-1.5);
+    v+= (4-cx-cy)*2;
+    if(c.c===aiColor)score+=v; else score-=v;
+  }
+  // Hole mouse bonus (safe)
+  if(st.hole){
+    var hv=RANK_VAL[st.hole.r]+50; // safe bonus
+    if(st.hole.c===aiColor)score+=hv; else score-=hv;
+  }
+  // Unflipped cards: expected value (unknown, slight bonus for having more)
+  var aiUn=0, oppUn=0;
+  // (we don't know colors of unflipped, so skip detailed)
+
+  // Tip: elephant safety — enemy mouse near my elephant is dangerous
+  var aiEle=null, oppMouse=null, aiMouse=null, oppEle=null, revCount=0;
+  for(var ey=0;ey<ROWS;ey++)for(var ex=0;ex<COLS;ex++){
+    var ec=st.board[ey][ex];
+    if(!ec||!ec.open)continue;
+    revCount++;
+    if(ec.c===aiColor){
+      if(ec.r===8)aiEle={x:ex,y:ey};
+      if(ec.r===1)aiMouse={x:ex,y:ey};
+    }else{
+      if(ec.r===1)oppMouse={x:ex,y:ey};
+      if(ec.r===8)oppEle={x:ex,y:ey};
+    }
+  }
+  if(aiEle&&oppMouse){
+    var d=Math.abs(aiEle.x-oppMouse.x)+Math.abs(aiEle.y-oppMouse.y);
+    if(d===1)score-=120;      // mouse adjacent to elephant: very dangerous
+    else if(d===2)score-=50;  // mouse close to elephant
+  }
+  if(aiMouse&&oppEle){
+    var d2=Math.abs(aiMouse.x-oppEle.x)+Math.abs(aiMouse.y-oppEle.y);
+    if(d2===1)score+=40;      // my mouse can eat their elephant next
+  }
+  // Tip 4 (endgame): hole mouse threatens enemy elephant late
+  if(st.hole&&st.hole.c===aiColor&&st.hole.r===1&&oppEle&&revCount<=10){
+    score+=60;
+  }
+  return score;
+}
+
+function cloneState(st){
+  var nb=[];
+  for(var y=0;y<ROWS;y++){nb.push([]);for(var x=0;x<COLS;x++){
+    var c=st.board[y][x];
+    nb[y].push(c?{c:c.c,r:c.r,open:c.open}:null);
+  }}
+  return {
+    board:nb,
+    hole:st.hole?{c:st.hole.c,r:st.hole.r,open:true}:null,
+    turn:st.turn, human:st.human, ai:st.ai,
+    over:st.over, winner:st.winner,
+    moveCount:st.moveCount, lastFlip:st.lastFlip,
+    capHuman:(st.capHuman||[]).map(function(e){return {c:e.c,r:e.r};}),
+    capAI:(st.capAI||[]).map(function(e){return {c:e.c,r:e.r};})
+  };
+}
+
+function minimax(st, depth, alpha, beta, maximizing, aiColor){
+  var win=checkWin(st);
+  if(win){
+    if(win==='draw')return 0;
+    return (win===aiColor?10000:-10000);
+  }
+  if(depth===0)return evaluate(st, aiColor);
+  
+  var side = maximizing ? aiColor : (aiColor==='red'?'blue':'red');
+  // If colors not determined yet, use turn-based
+  if(!st.human){
+    // Before first flip, just use heuristic
+    return evaluate(st, aiColor);
+  }
+  
+  var moves=getMoves(st, side);
+  if(!moves.length)return evaluate(st, aiColor);
+  
+  // Order moves: captures first
+  moves.sort(function(a,b){
+    var va=a.cap?RANK_VAL[a.cap.r]:(a.foe?RANK_VAL[a.foe.r]:0), vb=b.cap?RANK_VAL[b.cap.r]:(b.foe?RANK_VAL[b.foe.r]:0);
+    return vb-va;
+  });
+  // Limit branching for speed
+  if(moves.length>12)moves=moves.slice(0,12);
+  
+  if(maximizing){
+    var best=-Infinity;
+    for(var i=0;i<moves.length;i++){
+      var ns=cloneState(st);
+      _doMove(ns, moves[i]);
+      var v=minimax(ns, depth-1, alpha, beta, false, aiColor);
+      best=Math.max(best, v);
+      alpha=Math.max(alpha, best);
+      if(beta<=alpha)break;
+    }
+    return best;
+  }else{
+    var best=Infinity;
+    for(var i=0;i<moves.length;i++){
+      var ns=cloneState(st);
+      _doMove(ns, moves[i]);
+      var v=minimax(ns, depth-1, alpha, beta, true, aiColor);
+      best=Math.min(best, v);
+      beta=Math.min(beta, best);
+      if(beta<=alpha)break;
+    }
+    return best;
+  }
+}
+
+
+/* ===== AI strategy heuristics (user's tips) ===== */
+var aiPrevMove=null; // AI's last move, for anti-oscillation
+var uiLastMove=null;   // last move highlight {fx,fy,tx,ty} (persists until next move)
+var uiAnimateMove=null; // one-shot slide animation {fx,fy,tx,ty,img}
+
+function isReverseMove(m, prev){
+  if(!prev||!m)return false;
+  if(m.type==='move'&&prev.type==='move'){
+    return m.fx===prev.tx&&m.fy===prev.ty&&m.tx===prev.fx&&m.ty===prev.fy;
+  }
+  if(m.type==='exitHole'&&prev.type==='enterHole'){
+    return m.tx===prev.fx&&m.ty===prev.fy;
+  }
+  if(m.type==='enterHole'&&prev.type==='exitHole'){
+    return m.fx===prev.tx&&m.fy===prev.ty;
+  }
+  return false;
+}
+
+// Score a face-down flip candidate using positional heuristics.
+// Tip 1: flip adjacent to own STRONG pieces (elephant etc.) = safe.
+// Tip 2: avoid flipping adjacent to own MOUSE (risky).
+function flipScore(st, x, y, aiColor){
+  var s=0;
+  var D=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(var i=0;i<4;i++){
+    var nx=x+D[i][0], ny=y+D[i][1];
+    if(nx<0||nx>=COLS||ny<0||ny>=ROWS)continue;
+    var nc=st.board[ny][nx];
+    if(!nc||!nc.open)continue;
+    if(nc.c===aiColor){
+      if(nc.r===8)s+=60;       // own elephant nearby: safest
+      else if(nc.r>=6)s+=40;   // own lion/tiger nearby
+      else if(nc.r===1)s-=50;  // own mouse nearby: do NOT flip here
+      else if(nc.r<=3)s-=20;   // own weak piece nearby
+      else s+=10;
+    }else{
+      s+=10;                   // enemy nearby: information value
+      if(nc.r>=7)s-=10;        // ...but strong enemy nearby is risky
+    }
+  }
+  // Slight center preference
+  s+=(3-(Math.abs(x-1.5)+Math.abs(y-1.5)))*3;
+  return s;
+}
+
+// Manhattan distance from (x,y) to nearest hole corner
+function distToHole(x,y){
+  var d=99;
+  for(var i=0;i<HOLE_CORNERS.length;i++){
+    var dd=Math.abs(x-HOLE_CORNERS[i][0])+Math.abs(y-HOLE_CORNERS[i][1]);
+    if(dd<d)d=dd;
+  }
+  return d;
+}
+
+function aiChoose(st){
+  var aiColor=st.ai;
+  if(!aiColor){
+    // Before color determined, flip a random card (prefer center)
+    var moves=getMoves(st, 'red'); // flips available to anyone
+    var flips=moves.filter(function(m){return m.type==='flip';});
+    if(!flips.length)return null;
+    // Prefer center flips
+    flips.sort(function(a,b){
+      var da=Math.abs(a.x-1.5)+Math.abs(a.y-1.5);
+      var db=Math.abs(b.x-1.5)+Math.abs(b.y-1.5);
+      return da-db;
+    });
+    return flips[0];
+  }
+  
+  var moves=getMoves(st, aiColor);
+  if(!moves.length)return null;
+  
+  // Separate flips and moves
+  var flips=moves.filter(function(m){return m.type==='flip';});
+  var actions=moves.filter(function(m){return m.type!=='flip';});
+  
+  // Decide: flip or move?
+  // Heuristic: if behind in material or few pieces, prefer flip
+  var myCount=countCards(st, aiColor);
+  var oppColor=(aiColor==='red'?'blue':'red');
+  var oppCount=countCards(st, oppColor);
+  
+  var bestMove=null, bestVal=-Infinity;
+  
+  // Evaluate actions with 2-ply + strategy heuristics
+  for(var i=0;i<actions.length;i++){
+    var a=actions[i];
+    var ns=cloneState(st);
+    _doMove(ns, a);
+    var v=minimax(ns, 1, -Infinity, Infinity, false, aiColor);
+    // Tip 3: mouse to hole ASAP — highest priority
+    if(a.type==='enterHole')v+=120;
+    // Tip 3b: move mouse TOWARD hole corners
+    if(a.type==='move'){
+      var pc=st.board[a.fy][a.fx];
+      if(pc&&pc.r===1){
+        var d0=distToHole(a.fx,a.fy), d1=distToHole(a.tx,a.ty);
+        v+=(d0-d1)*25; // reward getting closer to hole
+      }
+    }
+    // Tip: exit hole to capture is valuable
+    if(a.type==='exitHole'&&a.cap)v+=RANK_VAL[a.cap.r]*0.8;
+    // Tip 5: NEVER oscillate — heavily penalize immediate reversal
+    if(isReverseMove(a, aiPrevMove))v-=200;
+    // Small random tiebreak
+    v+=Math.random()*5;
+    if(v>bestVal){bestVal=v;bestMove=a;}
+  }
+  
+  // Evaluate best flip (1-ply + heuristic)
+  var bestFlip=null, flipVal=-Infinity;
+  if(flips.length){
+    // Limit flip candidates for speed
+    var fc=flips.slice(0,8);
+    for(var i=0;i<fc.length;i++){
+      var ns=cloneState(st);
+      // Simulate flip: we don't know what it is, use expected value
+      // For simplicity, evaluate position after flip with heuristic boost if behind
+      _doMove(ns, fc[i]);
+      // After flip, the flipped card is now known in ns
+      var v=minimax(ns, 1, -Infinity, Infinity, false, aiColor);
+      // Bonus for flipping when behind
+      if(myCount<oppCount)v+=30;
+      // Tips 1&2: positional flip heuristics (near strong own pieces +, near own mouse -)
+      v+=flipScore(st, fc[i].x, fc[i].y, aiColor);
+      v+=Math.random()*5;
+      if(v>flipVal){flipVal=v;bestFlip=fc[i];}
+    }
+  }
+  
+  // Choose between best move and best flip
+  if(bestFlip&&(!bestMove||flipVal>bestVal+10)){
+    return bestFlip;
+  }
+  return bestMove||bestFlip;
+}
+
+/* ===== UI Rendering ===== */
+var sel=null; // {x,y} selected, or 'hole'
+var hints=[];
+var aiThinking=false;
+
+function px(x){return (x/(COLS-1)*100);}
+function py(y){return (y/(ROWS-1)*100);}
+
+// Slide a ghost of the moved piece from origin to destination over the fresh board
+function animateGhost(boardEl,am,cardW){
+  try{
+    var g=document.createElement('div');
+    g.className='move-ghost';
+    var img=document.createElement('img');
+    img.src=am.img;img.draggable=false;img.alt='';
+    g.appendChild(img);
+    g.style.width=cardW+'%';
+    g.style.left=px(am.fx)+'%';g.style.top=py(am.fy)+'%';
+    boardEl.appendChild(g);
+    var raf=(typeof requestAnimationFrame!=='undefined')?requestAnimationFrame:function(f){f();};
+    raf(function(){raf(function(){
+      g.style.left=px(am.tx)+'%';g.style.top=py(am.ty)+'%';
+    });});
+    setTimeout(function(){if(g.parentNode)g.parentNode.removeChild(g);},600);
+  }catch(e){}
+}
+function render(){
+  var boardEl=document.getElementById('board');
+  boardEl.innerHTML='';
+  
+  // SVG grid lines
+  var svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('id','grid-svg');
+  svg.setAttribute('viewBox','0 0 100 100');
+  svg.setAttribute('preserveAspectRatio','none');
+  
+  // Vertical lines
+  for(var x=0;x<COLS;x++){
+    var l=document.createElementNS('http://www.w3.org/2000/svg','line');
+    l.setAttribute('x1',px(x));l.setAttribute('y1',py(0));
+    l.setAttribute('x2',px(x));l.setAttribute('y2',py(ROWS-1));
+    l.setAttribute('stroke','#5a6a8a');l.setAttribute('stroke-width','0.8');
+    svg.appendChild(l);
+  }
+  // Horizontal lines
+  for(var y=0;y<ROWS;y++){
+    var l=document.createElementNS('http://www.w3.org/2000/svg','line');
+    l.setAttribute('x1',px(0));l.setAttribute('y1',py(y));
+    l.setAttribute('x2',px(COLS-1));l.setAttribute('y2',py(y));
+    l.setAttribute('stroke','#5a6a8a');l.setAttribute('stroke-width','0.8');
+    svg.appendChild(l);
+  }
+  // Hole: dashed rectangle around the 4 corners
+  var hx1=px(1), hy1=py(1), hx2=px(2), hy2=py(2);
+  var rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('x',hx1);rect.setAttribute('y',hy1);
+  rect.setAttribute('width',hx2-hx1);rect.setAttribute('height',hy2-hy1);
+  rect.setAttribute('fill','rgba(120,90,40,0.15)');
+  rect.setAttribute('stroke','#a08040');rect.setAttribute('stroke-width','0.8');
+  rect.setAttribute('stroke-dasharray','2,1.5');
+  rect.setAttribute('rx','2');
+  svg.appendChild(rect);
+  boardEl.appendChild(svg);
+  
+  // Hole label
+  var hl=document.createElement('div');
+  hl.className='hole-label';hl.textContent='鼠洞';
+  hl.style.left=px(HOLE_CX)+'%';hl.style.top=py(HOLE_CY)+'%';
+  boardEl.appendChild(hl);
+  
+  // Clickable hole area for mouse entry
+  var hz=document.createElement('div');
+  hz.style.position='absolute';
+  hz.style.left=px(1)+'%';hz.style.top=py(1)+'%';
+  hz.style.width=(px(2)-px(1))+'%';hz.style.height=(py(2)-py(1))+'%';
+  hz.className='hole-zone';
+  hz.style.transform='translate(0,0)';hz.style.zIndex='1';hz.style.cursor='pointer';
+  hz.addEventListener('click',function(){onTapHoleArea();});
+  boardEl.appendChild(hz);
+  
+  // Hole mouse (if any)
+  if(G.hole){
+    var hd=document.createElement('div');
+    hd.className='card'+(sel==='hole'?' selected':'');
+    hd.style.left=px(HOLE_CX)+'%';hd.style.top=py(HOLE_CY)+'%';
+    hd.style.width='20%';
+    var img=document.createElement('img');
+    img.src='img/'+G.hole.c+'_'+G.hole.r+'.png';
+    img.alt='';
+    hd.appendChild(img);
+    hd.addEventListener('click',function(){onTapHole();});
+    boardEl.appendChild(hd);
+  }
+  
+  // Cards on intersections
+  var cardW=20; // % width
+  for(var y=0;y<ROWS;y++)for(var x=0;x<COLS;x++){
+    (function(x,y){
+      var c=G.board[y][x];
+      if(!c)return;
+      var d=document.createElement('div');
+      d.className='card';
+      if(sel&&sel.x===x&&sel.y===y)d.classList.add('selected');
+      d.style.left=px(x)+'%';d.style.top=py(y)+'%';
+      d.style.width=cardW+'%';
+      if(c.open){
+        var img=document.createElement('img');
+        img.src='img/'+c.c+'_'+c.r+'.png';
+        img.alt='';
+        // Highlight hole corners
+        if(isHoleCorner(x,y)){
+          img.style.boxShadow='0 0 0 2px #a08040,'+img.style.boxShadow;
+        }
+        d.appendChild(img);
+      }else{
+        d.classList.add('card-back');
+        d.innerHTML='<span>兽</span>';
+        d.style.aspectRatio='2/3';
+      }
+      d.addEventListener('click',function(){onTap(x,y);});
+      boardEl.appendChild(d);
+    })(x,y);
+  }
+  
+  // Hints
+  for(var i=0;i<hints.length;i++){
+    var h=hints[i];
+    var hd=document.createElement('div');
+    hd.className='hint'+((h.cap||h.type==='sacrifice')?' cap':'');
+    if(h.type==='enterHole'){
+      hd.style.left=px(HOLE_CX)+'%';hd.style.top=py(HOLE_CY)+'%';
+    }else{
+      hd.style.left=px(h.tx)+'%';hd.style.top=py(h.ty)+'%';
+    }
+    boardEl.appendChild(hd);
+  }
+  
+  // Status
+  var st=document.getElementById('status');
+  if(G.over){
+    st.textContent=G.winner==='draw'?'和棋！':(G.winner===G.human?'你赢了！':'小miu赢了！');
+  }else if(aiThinking){
+    st.textContent='小miu 思考中...';st.classList.add('thinking');
+  }else{
+    st.classList.remove('thinking');
+    var colName=G.human?(G.human==='red'?'红方':'蓝方'):'';
+    st.textContent='轮到你走棋'+(colName?'（你是'+colName+'）':'（先翻牌）');
+  }
+  
+  // Last-move highlight: amber ring = origin, green ring = destination
+  if(uiLastMove){
+    var _lm=uiLastMove;
+    var _mf=document.createElement('div');
+    _mf.className='lm from';
+    _mf.style.left=px(_lm.fx)+'%';_mf.style.top=py(_lm.fy)+'%';_mf.style.width='20%';
+    boardEl.appendChild(_mf);
+    var _mt=document.createElement('div');
+    _mt.className='lm to';
+    _mt.style.left=px(_lm.tx)+'%';_mt.style.top=py(_lm.ty)+'%';_mt.style.width='20%';
+    boardEl.appendChild(_mt);
+  }
+  // One-shot slide animation for the just-played move
+  if(uiAnimateMove){
+    var _am=uiAnimateMove;uiAnimateMove=null;
+    animateGhost(boardEl,_am,20);
+  }
+
+  // Captured
+  renderCaptured();
+}
+
+function renderCaptured(){
+  // Captures are tracked explicitly in G.capHuman / G.capAI (no board inference)
+  var hc=document.getElementById('cap-human');
+  var ac=document.getElementById('cap-ai');
+  hc.innerHTML='';ac.innerHTML='';
+  var lists=[[hc,G.capHuman],[ac,G.capAI]];
+  for(var i=0;i<lists.length;i++){
+    var el=lists[i][0], arr=lists[i][1]||[];
+    for(var j=0;j<arr.length;j++){
+      var img=document.createElement('img');
+      img.src='img/'+arr[j].c+'_'+arr[j].r+'.png';
+      img.alt='';
+      el.appendChild(img);
+    }
+  }
+}
+
+function toast(msg){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.style.display='block';
+  setTimeout(function(){t.style.display='none';},1500);
+}
+
+/* ===== Interaction ===== */
+function onTap(x,y){
+  if(G.over||aiThinking)return;
+  if(G.turn!=='human')return;
+  var c=G.board[y][x];
+  
+  // Flip face-down card
+  if(c&&!c.open){
+    doMove(G,'flip',x,y);
+    afterHumanMove();
+    return;
+  }
+  // Deselect
+  if(sel&&sel.x===x&&sel.y===y){sel=null;hints=[];render();return;}
+  // Select own piece
+  if(c&&c.open&&G.human&&c.c===G.human){
+    sel={x:x,y:y};
+    hints=getMovesFor(G,x,y,G.human);
+    render();
+    if(!hints.length)toast('这张牌没有可走的位置');
+    return;
+  }
+  // Try move to tapped location
+  if(sel){
+    for(var i=0;i<hints.length;i++){
+      var h=hints[i];
+      if(h.tx===x&&h.ty===y){
+        doMove(G,h.type,h.fx,h.fy,h.tx,h.ty);
+        sel=null;hints=[];
+        afterHumanMove();
+        return;
+      }
+    }
+    sel=null;hints=[];render();
+  }
+}
+
+function onTapHoleArea(){
+  if(G.over||aiThinking)return;
+  if(G.turn!=='human')return;
+  // If a mouse is selected at a hole corner, enter the hole
+  if(sel&&sel.x!==undefined){
+    var c=G.board[sel.y][sel.x];
+    if(c&&c.open&&c.c===G.human&&c.r===1&&isHoleCorner(sel.x,sel.y)&&!G.hole){
+      realMove(G,{type:'enterHole',fx:sel.x,fy:sel.y});
+      sel=null;hints=[];
+      afterHumanMove();
+      return;
+    }
+  }
+  // If mouse is in hole, select it
+  if(G.hole&&G.hole.c===G.human){
+    onTapHole();
+  }
+}
+function onTapHole(){
+  if(G.over||aiThinking)return;
+  if(G.turn!=='human')return;
+  // Select mouse in hole
+  if(G.hole&&G.hole.c===G.human){
+    sel='hole';
+    hints=getMovesForHole(G,G.human);
+    render();
+  }
+}
+
+function getMovesFor(st,x,y,color){
+  var all=getMoves(st,color);
+  return all.filter(function(m){
+    return (m.fx===x&&m.fy===y);
+  });
+}
+function getMovesForHole(st,color){
+  var all=getMoves(st,color);
+  return all.filter(function(m){return m.type==='exitHole'||(m.type==='sacrifice'&&m.fromHole);});
+}
+
+// Wrapper for doMove to match UI call signature
+var _doMove=doMove;
+doMove=function(st,type,fx,fy,tx,ty){
+  if(type==='flip'){
+    return realMove(st,{type:'flip',x:fx,y:fy});
+  }else if(type==='move'){
+    // Find the move object
+    var moves=getMoves(st, st.human);
+    for(var i=0;i<moves.length;i++){
+      var m=moves[i];
+      if(m.type==='move'&&m.fx===fx&&m.fy===fy&&m.tx===tx&&m.ty===ty){
+        return realMove(st,m);
+      }
+    }
+  }else if(type==='enterHole'){
+    return realMove(st,{type:'enterHole',fx:fx,fy:fy});
+  }else if(type==='sacrifice'){
+    var moves=getMoves(st, st.human);
+    for(var i=0;i<moves.length;i++){
+      var m=moves[i];
+      if(m.type!=='sacrifice')continue;
+      if(m.fromHole){
+        if(m.tx===tx&&m.ty===ty)return realMove(st,m);
+      }else if(m.fx===fx&&m.fy===fy&&m.tx===tx&&m.ty===ty){
+        return realMove(st,m);
+      }
+    }
+  }else if(type==='exitHole'){
+    var moves=getMoves(st, st.human);
+    for(var i=0;i<moves.length;i++){
+      var m=moves[i];
+      if(m.type==='exitHole'&&m.tx===tx&&m.ty===ty){
+        return realMove(st,m);
+      }
+    }
+  }
+};
+
+function afterHumanMove(){
+  sel=null;hints=[];
+  var w=checkWin(G);
+  if(w){endGame(w);render();return;}
+  render();
+  // AI turn
+  aiThinking=true;render();
+  setTimeout(function(){
+    var m=aiChoose(G);
+    if(m){
+      realMove(G,m);
+      aiPrevMove=m; // remember for anti-oscillation
+    }
+    aiThinking=false;
+    var w2=checkWin(G);
+    if(w2)endGame(w2);
+    render();
+  },600);
+}
+
+function endGame(w){
+  G.over=true;
+  G.winner=w;
+  var t=document.getElementById('ov-text');
+  if(w==='draw')t.textContent='和棋！';
+  else if(w===G.human)t.textContent='你赢了！🎉';
+  else t.textContent='小miu赢了！';
+  document.getElementById('overlay').classList.add('show');
+}
+
+function newGame(){
+  G=newState();
+  sel=null;hints=[];aiThinking=false;aiPrevMove=null;
+  uiLastMove=null;uiAnimateMove=null;
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('cap-human').innerHTML='';
+  document.getElementById('cap-ai').innerHTML='';
+  render();
+}
+
+document.getElementById('btn-new').addEventListener('click',newGame);
+document.getElementById('btn-again').addEventListener('click',newGame);
+document.getElementById('btn-share').addEventListener('click',function(){
+  copyText(gameSummary(G));
+});
+function copyText(txt){
+  var ok=function(){toast('战绩已复制，发给小miu复盘吧');};
+  function legacy(){
+    var ta=document.createElement('textarea');
+    ta.value=txt;ta.style.position='fixed';ta.style.top='0';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.focus();ta.select();
+    try{document.execCommand('copy');ok();}
+    catch(e){toast('复制失败，请手动复制');}
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(ok,legacy);}
+  else{legacy();}
+}
+// Delegated click: make empty intersections clickable (cards have no div there)
+document.getElementById('board').addEventListener('click',function(e){
+  var t=e.target;
+  if(t&&t.closest&&t.closest('.card,.hole-zone'))return; // handled by their own listeners
+  var r=this.getBoundingClientRect();
+  if(!r.width||!r.height)return;
+  var gx=Math.round((e.clientX-r.left)/r.width*(COLS-1));
+  var gy=Math.round((e.clientY-r.top)/r.height*(ROWS-1));
+  gx=Math.max(0,Math.min(COLS-1,gx));
+  gy=Math.max(0,Math.min(ROWS-1,gy));
+  onTap(gx,gy);
+});
+newGame();
+</script>
+</body>
+</html>
