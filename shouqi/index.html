@@ -971,7 +971,7 @@ function render(){
     var hd=document.createElement('div');
     hd.className='card'+(sel==='hole'?' selected':'');
     hd.style.left=px(HOLE_CX)+'%';hd.style.top=py(HOLE_CY)+'%';
-    hd.style.width='20%';
+    hd.style.width='13%';
     var img=document.createElement('img');
     img.src='img/'+G.hole.c+'_'+G.hole.r+'.png';
     img.alt='';
@@ -1055,17 +1055,33 @@ function render(){
     })(x,y);
   }
   
-  // Hints
+  // Hints (clickable: tap the dot to move directly, no coordinate math)
   for(var i=0;i<hints.length;i++){
-    var h=hints[i];
-    var hd=document.createElement('div');
-    hd.className='hint'+((h.cap||h.type==='sacrifice')?' cap':'');
-    if(h.type==='enterHole'){
-      hd.style.left=px(HOLE_CX)+'%';hd.style.top=py(HOLE_CY)+'%';
-    }else{
-      hd.style.left=px(h.tx)+'%';hd.style.top=py(h.ty)+'%';
-    }
-    boardEl.appendChild(hd);
+    (function(h){
+      var hd=document.createElement('div');
+      hd.className='hint'+((h.cap||h.type==='sacrifice')?' cap':'');
+      if(h.type==='enterHole'){
+        hd.style.left=px(HOLE_CX)+'%';hd.style.top=py(HOLE_CY)+'%';
+      }else if(h.tx!==undefined){
+        hd.style.left=px(h.tx)+'%';hd.style.top=py(h.ty)+'%';
+      }else{
+        return; // no position (should not happen)
+      }
+      hd.style.pointerEvents='auto';
+      hd.style.cursor='pointer';
+      // Larger tap target
+      hd.style.width='34px';hd.style.height='34px';
+      hd.style.marginLeft='-17px';hd.style.marginTop='-17px';
+      hd.addEventListener('click',function(ev){
+        ev.stopPropagation();
+        if(!G||G.over||aiThinking)return;
+        if(!isMyTurn())return;
+        realMove(G,h);
+        sel=null;hints=[];
+        afterHumanMove(h);
+      });
+      boardEl.appendChild(hd);
+    })(hints[i]);
   }
   
   // Status
