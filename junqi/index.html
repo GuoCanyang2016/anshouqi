@@ -363,7 +363,7 @@ function cloneState(st){
     ns.board[y]=[];
     for(var x=0;x<COLS;x++){
       var p=st.board[y][x];
-      ns.board[y][x]=p?{c:p.c,t:p.t,open:p.open}:null;
+      ns.board[y][x]=p?{c:p.c,t:p.t,open:p.open,_sf:p._sf,_expV:p._expV}:null;
     }
   }
   return ns;
@@ -792,6 +792,7 @@ var AIW = {
   mineBlock: 5,     // own mine next to own engineer: penalty (blocks the path)
   mobility: 1.2,    // per movable-piece difference
   flagGuard: 40,    // open enemy engineer within 3 of open flag: penalty
+  engBlock: 200,    // my open piece adjacent to dangerous enemy engineer: block/threat bonus
   flipUncert: 12,   // DEPRECATED (kept so tune.js weight list still loads): the peek it compensated is now fixed by determinized sampling in aiDoMove; no longer applied
   jitter: 2,        // random tiebreak amplitude (0 = deterministic, for tests/tuning)
   timeMs: 800,      // hard time budget per move (ms)
@@ -814,6 +815,12 @@ function evaluate(st, aiColor){
   for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
     var p=st.board[y][x];
     if(!p) continue;
+    if(p._sf){
+      // Flipped inside search: score at hidden-multiset expected value
+      // (no peeking, no single-sample optimism). Signed from AI's view.
+      score += p._expV;
+      continue;
+    }
     if(!p.open){
       // Flip risk: face-down card next to open big pieces.
       // Cards next to MY big pieces are safer for me; next to ENEMY big pieces are dangerous.
@@ -884,9 +891,22 @@ function evaluate(st, aiColor){
   if(flagX>=0){
     for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
       var pe=st.board[y][x];
-      if(pe&&pe.open&&pe.c===opp&&pe.t==='gongbing'){
+      if(pe&&!pe._sf&&pe.open&&pe.c===opp&&pe.t==='gongbing'){
         var dd=manhattan(x,y,flagX,flagY);
         if(dd<=3) score -= W.flagGuard*(4-dd)/4;
+        // Defensive bonus: my open pieces standing next to the dangerous
+        // engineer threaten it and often block its path. This is what makes
+        // the AI actually go block instead of capturing elsewhere.
+        if(dd<=4){
+          for(var di=0;di<4;di++){
+            var ax=x+DIRS[di][0], ay=y+DIRS[di][1];
+            if(!inB(ax,ay))continue;
+            var qd=st.board[ay][ax];
+            if(qd&&!qd._sf&&qd.open&&qd.c===aiColor&&PIECES[qd.t].canMove){
+              score += W.engBlock;
+            }
+          }
+        }
       }
     }
   }
@@ -906,16 +926,34 @@ function aiMovesFor(st, slot, aiColor){
   var color = st[slot] || aiColor;
   return getAllMoves(st, color);
 }
+// Expected material value of flipping a random face-down card, from AI's
+// perspective. The hidden multiset is public info (deck minus open cards),
+// so using its mean is not peeking.
+function hiddenExpectedValue(st, aiColor){
+  var sum=0, n=0, x, y;
+  for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
+    var q=st.board[y][x];
+    if(q&&!q.open){
+      var v=(AIW.mat[q.t]!==undefined)?AIW.mat[q.t]:10;
+      if(q.t==='junqi')v=0; // neutral flag: no material
+      if(q.c===aiColor)sum+=v;
+      else if(q.c!=='neutral')sum-=v;
+      n++;
+    }
+  }
+  return n? sum/n : 0;
+}
 // Apply a move inside search: color assignment on first flip, turn flip, flag-capture win.
-function aiDoMove(st, m){
+function aiDoMove(st, m, aiColor){
   var mover = st.turn;
   if(m.type==='flip'){
-    // Anti-peek (determinized sampling): the real game cannot see under a
-    // face-down card, so neither may the search. Swap the flip target with a
-    // random other face-down card first, so the simulated reveal shows a
-    // random world consistent with public info instead of the true layout.
-    // (Without this the AI always flips the highest-value hidden piece,
-    // e.g. 司令 first every game.)
+    // Determinized sampling + expected-value scoring: the real game cannot
+    // see under a face-down card, so the search must neither peek (use the
+    // true card) nor get optimistic (single random sample + argmax = winner's
+    // curse). We still swap+reveal for tree mechanics (color assignment, move
+    // gen), but the flipped card is marked so evaluate() scores it at the
+    // hidden multiset's expected value instead of the sampled identity.
+    var expV=hiddenExpectedValue(st, aiColor);
     var hx=[],hy=[],_sx,_sy;
     for(_sy=0;_sy<ROWS;_sy++)for(_sx=0;_sx<COLS;_sx++){
       var _q=st.board[_sy][_sx];
@@ -927,16 +965,26 @@ function aiDoMove(st, m){
       st.board[m.y][m.x]=st.board[hy[_ri]][hx[_ri]];
       st.board[hy[_ri]][hx[_ri]]=_tmp;
     }
+    var _info = doMove(st, m);
+    var _fp=st.board[m.y][m.x];
+    if(_fp){_fp._sf=true;_fp._expV=expV;}
+    var info=_info;
+  } else {
+    var info = doMove(st, m);
   }
-  var info = doMove(st, m);
   if(m.type==='flip' && !st.human && info.flipped.c!=='neutral'){
     var c = info.flipped.c;
     st[mover]=c;
     st[mover==='human'?'ai':'human']=(c==='red'?'blue':'red');
   }
   if(m.type==='capture' && m.result==='attacker' && m.foe && m.foe.t==='junqi' && !st.over){
-    st.over=true;
-    st.winner=st[mover]||null;
+    // A card flipped inside search (_sf) has a SAMPLED identity, not the true
+    // one. Forbidding it from taking the flag: in the real game you can't plan
+    // a flag capture around a card you haven't seen. Without this, sampled
+    // worlds produce spurious forced wins (strategy fusion) that make the AI
+    // avoid good moves (e.g. bomb x 司令）.
+    var _att=st.board[m.ty]&&st.board[m.ty][m.tx];
+    if(!(_att&&_att._sf)){st.over=true;st.winner=st[mover]||null;}
   }
   st.turn=(mover==='human'?'ai':'human');
   if(!st.over && faceDownCount(st)===0) updateWinState(st);
@@ -992,7 +1040,7 @@ function quiesce(st, alpha, beta, aiSlot, aiColor, deadline, qd){
   orderMoves(st,moves,aiColor);
   for(var i=0;i<moves.length;i++){
     var ns=cloneState(st);
-    aiDoMove(ns,moves[i]);
+    aiDoMove(ns,moves[i],aiColor);
     var v=quiesce(ns,alpha,beta,aiSlot,aiColor,deadline,qd+1);
     if(AI_ABORT) return 0;
     if(maximizing){ if(v>alpha)alpha=v; if(alpha>=beta)break; }
@@ -1015,13 +1063,62 @@ function minimax(st, depth, alpha, beta, aiSlot, aiColor, deadline){
   var maximizing=(st.turn===aiSlot);
   for(var i=0;i<moves.length;i++){
     var ns=cloneState(st);
-    aiDoMove(ns,moves[i]);
+    aiDoMove(ns,moves[i],aiColor);
     var v=minimax(ns,depth-1,alpha,beta,aiSlot,aiColor,deadline);
     if(AI_ABORT) return 0;
     if(maximizing){ if(v>alpha)alpha=v; if(alpha>=beta)break; }
     else { if(v<beta)beta=v; if(beta<=alpha)break; }
   }
   return maximizing?alpha:beta;
+}
+// Find an obviously winning SACRIFICE capture (net material >= 60, both die),
+// e.g. bomb x 司令. Normal captures go through the full search; sacrifices
+// confuse the noisy search, so they get a tactical shortcut in aiChoose.
+// Find a defensive move against an enemy engineer closing in on the open flag:
+// capture it, or occupy a square that lies on its forward path to the flag
+// (a square adjacent to the engineer that is strictly closer to the flag).
+// Returns the move or null.
+function findDefenseMove(st, moves, aiColor){
+  var opp=aiColor==='red'?'blue':'red';
+  var flagX=-1, flagY=-1, ex=-1, ey=-1, x, y;
+  for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
+    var p=st.board[y][x];
+    if(!p||!p.open||p._sf) continue;
+    if(p.t==='junqi'){flagX=x;flagY=y;}
+    if(p.c===opp&&p.t==='gongbing'){ex=x;ey=y;}
+  }
+  if(flagX<0||ex<0) return null;
+  var ed=Math.abs(ex-flagX)+Math.abs(ey-flagY);
+  if(ed>3) return null;
+  // capture of the engineer first
+  for(var i=0;i<moves.length;i++){
+    var m=moves[i];
+    if(m.type==='capture'&&m.foe&&m.foe.t==='gongbing'&&m.foe.c===opp) return m;
+  }
+  // block: land on a forward square (adjacent to engineer, closer to flag)
+  for(var j=0;j<moves.length;j++){
+    var m2=moves[j];
+    if(m2.type==='flip') continue;
+    var dx=Math.abs(m2.tx-ex)+Math.abs(m2.ty-ey);
+    if(dx!==1) continue;
+    var nd=Math.abs(m2.tx-flagX)+Math.abs(m2.ty-flagY);
+    if(nd<ed) return m2;
+  }
+  return null;
+}
+function findTacticalCapture(st, moves){
+  var best=null, bestGain=60;
+  for(var i=0;i<moves.length;i++){
+    var m=moves[i];
+    if(m.type!=='capture'||!m.foe||m.result!=='both') continue;
+    var att=st.board[m.fy]&&st.board[m.fy][m.fx];
+    if(!att) continue;
+    var vm=(AIW.mat[m.foe.t]!==undefined)?AIW.mat[m.foe.t]:10;
+    var am=(AIW.mat[att.t]!==undefined)?AIW.mat[att.t]:10;
+    var gain=vm-am;
+    if(gain>=60&&gain>bestGain){bestGain=gain;best=m;}
+  }
+  return best;
 }
 function aiChoose(st, aiColor){
   var aiSlot=aiSlotOf(st,aiColor);
@@ -1032,13 +1129,32 @@ function aiChoose(st, aiColor){
   if(rootMoves.length===1) return rootMoves[0];
   orderMoves(st,rootMoves,aiColor);
   var deadline=Date.now()+AIW.timeMs;
+  // Tactical shortcut: an obviously winning capture (e.g. bomb x 司令， net
+  // +65) should not be talked out of by sampling noise in the deep search.
+  // Verify with a shallow search that it's not walking into a refutation.
+  var tac=findTacticalCapture(st,rootMoves);
+  if(tac){
+    var _ns=cloneState(st);
+    aiDoMove(_ns,tac,aiColor);
+    var _v=minimax(_ns,2,-Infinity,Infinity,aiSlot,aiColor,deadline);
+    if(_v>-50000) return tac;
+  }
+  // Defensive emergency: enemy engineer within 3 of the open flag.
+  // Step next to it / capture it instead of grabbing material elsewhere.
+  var def=findDefenseMove(st,rootMoves,aiColor);
+  if(def){
+    var _ns2=cloneState(st);
+    aiDoMove(_ns2,def,aiColor);
+    var _v2=minimax(_ns2,2,-Infinity,Infinity,aiSlot,aiColor,deadline);
+    if(_v2>-50000) return def;
+  }
   var best=rootMoves[0], bestScore=-Infinity;
   AI_ABORT=false;
   for(var depth=1; depth<=AIW.maxDepth; depth++){
     var cur=null, curScore=-Infinity, aborted=false;
     for(var i=0;i<rootMoves.length;i++){
       var ns=cloneState(st);
-      aiDoMove(ns,rootMoves[i]);
+      aiDoMove(ns,rootMoves[i],aiColor);
       var v=minimax(ns,depth-1,-Infinity,Infinity,aiSlot,aiColor,deadline);
       if(AI_ABORT){ aborted=true; break; }
       if(v>curScore){ curScore=v; cur=rootMoves[i]; }
