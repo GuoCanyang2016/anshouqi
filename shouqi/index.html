@@ -514,22 +514,22 @@ function realMove(st,m){
     }
     cap=doMoveCore(st,m);
     if(e&&(e.type==='move'||e.type==='exitHole'||e.type==='climbDown')&&cap)e.capR=cap.r;
-    // Toast text hints for flips and captures (like daoshaji)
-    if(st===G&&e&&typeof toast==='function'){
-      var _isLocal=netActive()?(e.by===(NET.role==='host'?'human':'ai')):(e.by==='human');
-      var _opp=oppName();
-      if(e.type==='flip'){
-        toast(_isLocal?('翻开：'+RANK_NAME[e.cr]):(_opp+'翻开了'+RANK_NAME[e.cr]));
-      }else if(e.type==='flipTree'){
-        toast(_isLocal?('翻树！'):(_opp+'翻树！'));
-      }else if(e.type==='climbTree'){
-        toast(_isLocal?('上树🌲'):(_opp+'上树🌲'));
-      }else if(e.type==='sacrifice'){
-        toast('💥 同归于尽！');
-      }else if((e.type==='move'||e.type==='exitHole'||e.type==='climbDown')&&e.capR){
-        var _capName=RANK_NAME[e.capR];
-        toast(_isLocal?('吃掉了对方'+_capName+'！'):(_opp+'吃掉了你的'+_capName+'！'));
-      }
+  }
+  // Toast text hints for flips and captures (like daoshaji) — runs for ALL move types
+  if(st===G&&e&&typeof toast==='function'){
+    var _isLocal=netActive()?(e.by===(NET.role==='host'?'human':'ai')):(e.by==='human');
+    var _opp=oppName();
+    if(e.type==='flip'){
+      toast(_isLocal?('翻开：'+RANK_NAME[e.cr]):(_opp+'翻开了'+RANK_NAME[e.cr]));
+    }else if(e.type==='flipTree'){
+      toast(_isLocal?('翻树！'):(_opp+'翻树！'));
+    }else if(e.type==='climbTree'){
+      toast(_isLocal?('上树🌲'):(_opp+'上树🌲'));
+    }else if(e.type==='sacrifice'){
+      toast('💥 同归于尽！');
+    }else if((e.type==='move'||e.type==='exitHole'||e.type==='climbDown')&&e.capR){
+      var _capName=RANK_NAME[e.capR];
+      toast(_isLocal?('吃掉了对方'+_capName+'！'):(_opp+'吃掉了你的'+_capName+'！'));
     }
   }
   if(e&&st.log)st.log.push(e);
@@ -1070,9 +1070,8 @@ function render(){
       }
       hd.style.pointerEvents='auto';
       hd.style.cursor='pointer';
-      // Larger tap target
+      // Larger tap target (34px, centered by CSS transform)
       hd.style.width='34px';hd.style.height='34px';
-      hd.style.marginLeft='-17px';hd.style.marginTop='-17px';
       hd.addEventListener('click',function(ev){
         ev.stopPropagation();
         if(!G||G.over||aiThinking)return;
@@ -1248,10 +1247,9 @@ function onTapHoleArea(){
       return;
     }
   }
-  // If mouse is in hole, select it
-  if(G.hole&&G.hole.c===myColor()){
-    onTapHole();
-  }
+  // Note: tapping the hole area does NOT select the hole mouse anymore.
+  // The mouse image itself (10% size) has its own click listener for selection,
+  // so the clickable area matches the visible image and avoids mis-taps.
 }
 function onTapHole(){
   if(G.over||aiThinking)return;
