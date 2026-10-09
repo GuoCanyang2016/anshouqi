@@ -80,7 +80,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 <b>走子：</b>除地雷、军旗外，沿线走1格。<br>
 <b>大小：</b>司令&gt;军长&gt;师长&gt;旅长&gt;团长&gt;营长&gt;连长&gt;排长&gt;班长&gt;工兵，大吃小。<br>
 <b>地雷：</b>不能动；除炸弹外，任何子撞上都同归于尽，只有工兵能排雷（工兵存活）。炸弹不能碰地雷。<br>
-<b>炸弹：</b>主动撞或被撞，双方同归于尽（只能炸人，不能炸军旗、地雷）。炸弹不能空走：只有走到相邻有对方牌的位置（或直接撞上对方的牌）才能移动。<br>
+<b>炸弹：</b>主动撞或被撞，双方同归于尽（只能炸人，不能炸军旗、地雷）。炸弹不能空走：只能直接撞上对方的牌，不能走到空位上（哪怕旁边有对方的牌也不行）。<br>
 <b>军旗：</b>中立，不能动；只有工兵能拿，拿到军旗直接获胜。<br>
 <b>胜负：</b>工兵拿到军旗获胜；或对方无棋可走判负。<br>\n<b>同级：</b>同级相遇双方同归于尽。
 </div>
@@ -274,8 +274,8 @@ function getMoves(st,x,y,color){
     if(!inB(nx,ny))continue;
     var q=st.board[ny][nx];
     if(!q){
-      // Bomb cannot wander: only move if it ends orthogonally adjacent to an enemy piece
-      if(p.t==='zhadan'&&!bombNearEnemy(st,nx,ny,color))continue;
+      // Bomb cannot move empty: it may only capture (ram) directly, never reposition.
+      if(p.t==='zhadan')continue;
       moves.push({type:'move',fx:x,fy:y,tx:nx,ty:ny});
     }else if(q.open&&(q.c!==color||q.c==='neutral')){
       var r=captureResult(p,q);
@@ -996,6 +996,25 @@ function termScore(st, aiSlot, aiColor){
   return st.winner===myC ? 100000 : -100000;
 }
 // Move ordering for alpha-beta: captures (MVV-LVA) > flips (safe first) > quiet moves.
+// Is the piece at (x,y) the AI's sole defender near the open flag?
+// (only open movable AI piece within 3 of the flag: trading it away leaves the flag open)
+function isSoleFlagDefender(st,x,y,aiColor){
+  var flagX=-1,flagY=-1,fx,fy;
+  for(fy=0;fy<ROWS;fy++)for(fx=0;fx<COLS;fx++){
+    var q=st.board[fy][fx];
+    if(q&&q.open&&!q._sf&&q.t==='junqi'){flagX=fx;flagY=fy;break;}
+  }
+  if(flagX<0)return false;
+  if(Math.abs(x-flagX)+Math.abs(y-flagY)>3)return false;
+  var n=0;
+  for(fy=0;fy<ROWS;fy++)for(fx=0;fx<COLS;fx++){
+    var p=st.board[fy][fx];
+    if(p&&p.open&&!p._sf&&p.c===aiColor&&PIECES[p.t].canMove){
+      if(Math.abs(fx-flagX)+Math.abs(fy-flagY)<=3)n++;
+    }
+  }
+  return n<=1;
+}
 function orderMoves(st, moves, aiColor){
   var opp = aiColor==='red'?'blue':'red';
   for(var i=0;i<moves.length;i++){
@@ -1004,7 +1023,13 @@ function orderMoves(st, moves, aiColor){
       var vv=(AIW.mat[m.foe.t]!==undefined)?AIW.mat[m.foe.t]:10;
       sc=10000+vv;
       if(m.foe.t==='junqi') sc+=50000;
-      if(m.result==='both') sc-=500;
+      // Enemy engineer: highest-priority kill target (it can steal the flag and win)
+      if(m.foe.t==='gongbing'&&m.foe.c===opp) sc+=8000;
+      if(m.result==='both'){
+        sc-=500;
+        // Don't trade away the sole flag defender: leaves the flag wide open
+        if(isSoleFlagDefender(st,m.fx,m.fy,aiColor)) sc-=5000;
+      }
       if(m.result==='defender') sc-=20000;
     }else if(m.type==='flip'){
       sc=1000;
@@ -1106,13 +1131,15 @@ function findDefenseMove(st, moves, aiColor){
   }
   return null;
 }
-function findTacticalCapture(st, moves){
+function findTacticalCapture(st, moves, aiColor){
   var best=null, bestGain=60;
   for(var i=0;i<moves.length;i++){
     var m=moves[i];
     if(m.type!=='capture'||!m.foe||m.result!=='both') continue;
     var att=st.board[m.fy]&&st.board[m.fy][m.fx];
     if(!att) continue;
+    // Never sacrifice the sole flag defender, no matter the material gain
+    if(aiColor&&isSoleFlagDefender(st,m.fx,m.fy,aiColor)) continue;
     var vm=(AIW.mat[m.foe.t]!==undefined)?AIW.mat[m.foe.t]:10;
     var am=(AIW.mat[att.t]!==undefined)?AIW.mat[att.t]:10;
     var gain=vm-am;
@@ -1120,19 +1147,45 @@ function findTacticalCapture(st, moves){
   }
   return best;
 }
+// Is this suicide capture potentially purposeful? A small piece (rank<=4)
+// sacrificing itself next to my big piece (rank>=7: 师长/军长/司令） might be
+// clearing the big piece's path. Returns true to let the search decide;
+// the material loss in evaluate() filters out the actually-bad ones.
+function isPurposefulSuicide(st,m,aiColor){
+  var att=st.board[m.fy]&&st.board[m.fy][m.fx];
+  if(!att||att.c!==aiColor) return false;
+  if(PIECES[att.t].rank>4) return false;
+  for(var d=0;d<4;d++){
+    var bx=m.fx+DIRS[d][0], by=m.fy+DIRS[d][1];
+    if(!inB(bx,by))continue;
+    var big=st.board[by][bx];
+    if(big&&big.open&&!big._sf&&big.c===aiColor&&PIECES[big.t].rank>=7) return true;
+  }
+  return false;
+}
 function aiChoose(st, aiColor){
   var aiSlot=aiSlotOf(st,aiColor);
   st=cloneState(st);
   st.turn=aiSlot; // aiChoose is always called for the AI's own move
   var rootMoves=aiMovesFor(st,aiSlot,aiColor);
   if(!rootMoves.length) return null;
+  // No senseless suicide: drop captures where the attacker dies for nothing,
+  // UNLESS potentially purposeful (small piece next to my big piece: might be
+  // clearing its path). Purposeful-looking ones go through full search; the
+  // material loss in evaluate() rejects them if they're actually bad.
+  // (suicides kept in getMoves for the human and for opponent modeling in search)
+  var nonSuicide=rootMoves.filter(function(m){
+    if(!(m.type==='capture'&&m.result==='defender')) return true;
+    return isPurposefulSuicide(st,m,aiColor);
+  });
+  if(nonSuicide.length) rootMoves=nonSuicide;
   if(rootMoves.length===1) return rootMoves[0];
   orderMoves(st,rootMoves,aiColor);
   var deadline=Date.now()+AIW.timeMs;
   // Tactical shortcut: an obviously winning capture (e.g. bomb x 司令， net
   // +65) should not be talked out of by sampling noise in the deep search.
   // Verify with a shallow search that it's not walking into a refutation.
-  var tac=findTacticalCapture(st,rootMoves);
+  var tac=findTacticalCapture(st,rootMoves,aiColor);
   if(tac){
     var _ns=cloneState(st);
     aiDoMove(_ns,tac,aiColor);
