@@ -31,6 +31,12 @@ body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gr
 .move-ghost{position:absolute;transform:translate(-50%,-50%);z-index:60;pointer-events:none;transition:left .45s ease,top .45s ease}
 .move-ghost img{width:100%;display:block;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.5)}
 .hole-label{position:absolute;transform:translate(-50%,-50%);color:#6b5636;font-size:13px;font-weight:bold;pointer-events:none;z-index:1}
+.tree-badge{position:absolute;left:-6px;top:-10px;z-index:6;font-size:18px;pointer-events:auto;cursor:pointer;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+.tree-known-tag{position:absolute;right:-4px;bottom:-8px;z-index:6;font-size:11px;font-weight:bold;color:#fff;background:#2b7a3d;border-radius:8px;padding:1px 6px;pointer-events:none;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.card.tree-top img{width:82%;margin-left:18%;margin-top:0}
+.card.tree-bottom{width:62%!important;opacity:.95;z-index:1}
+.card.known-down{opacity:.45}
+.flip-tree-hint{position:absolute;transform:translate(-50%,-50%);z-index:7;pointer-events:auto;cursor:pointer;font-size:22px;background:rgba(255,255,255,.9);border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 #grid-svg line{stroke:#8a6f4d}
 #share-hint{color:#8a7358!important}
 #captured{width:100%;max-width:480px;display:flex;justify-content:space-between;padding:8px 4px;font-size:13px;margin-top:4px}
@@ -72,6 +78,7 @@ body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gr
   <b>玩法：</b>点牌翻面，首翻定颜色。轮流翻牌或走子。<br>
   吃子：象&gt;狮&gt;虎&gt;豹&gt;狼&gt;狗&gt;猫&gt;鼠；<b>同级相遇可点选同归于尽</b>（双方都移除，也可不走）；<b>鼠能吃象，象吃不了鼠</b>。<br>
   <b>鼠洞：</b>只有老鼠能进出中间的鼠洞（四个角），鼠洞里的老鼠吃不着。<br>
+  <b>上树（村规）：</b>虎、豹、猫可以跳到相邻未翻开的牌上🌲，树上不能被吃；可下树到相邻空位，或跳杀相邻更小的敌子。点🌲或点选中后再点一次可翻树：翻出敌子比大小（大留小走，同级同归于尽）；翻出同阵营则换位。同一棵树最多翻两次。<br>
   吃光对方8张获胜。
 </div>
 <div id="toast"></div>
@@ -179,6 +186,7 @@ function newState(){
   return {
     board:board,
     hole:null, // card in hole, or null
+    trees:{}, // "x,y" -> {top:{c,r}, flips:0, flipCamp:null}; bottom card stays in board[y][x] (face-down, known flag)
     turn:'human', // 'human' or 'ai'
     human:null, // 'red' or 'blue', set by first flip
     ai:null,
@@ -193,6 +201,8 @@ function newState(){
 }
 
 function inBounds(x,y){return x>=0&&x<COLS&&y>=0&&y<ROWS;}
+function isTree(st,x,y){return !!(st.trees&&(x+','+y) in st.trees);}
+function treeKey(x,y){return x+','+y;}
 function isHoleCorner(x,y){
   for(var i=0;i<HOLE_CORNERS.length;i++)if(HOLE_CORNERS[i][0]===x&&HOLE_CORNERS[i][1]===y)return true;
   return false;
@@ -207,15 +217,31 @@ function canCapture(att, def){
 }
 
 /* ===== Move Generation ===== */
+// Tree-climbing (村规): tiger(6)/leopard(5)/cat(2) can jump onto an adjacent
+// face-down card ("tree"). While on a tree the piece cannot be captured
+// (like the mouse in the hole), but the tree itself can be flipped.
+var TREE_CLIMBERS={2:true,5:true,6:true};
+function canFlipTree(st,x,y,side){
+  var t=st.trees[treeKey(x,y)];
+  if(!t)return false;
+  if(t.flips>=2)return false;
+  if(t.flipCamp&&st.human&&t.flipCamp!==side)return false;
+  return true;
+}
 function getMoves(st, side){
   // side: 'red' or 'blue' (the color), returns list of moves
-  // move: {type:'flip', x, y} or {type:'move', fx, fy, tx, ty} or {type:'enterHole', fx, fy} or {type:'exitHole', tx, ty}
+  // move: {type:'flip', x, y} | {type:'move', fx, fy, tx, ty} | {type:'enterHole', fx, fy} | {type:'exitHole', tx, ty}
+  //       | {type:'climbTree', fx, fy, tx, ty} | {type:'climbDown', fx, fy, tx, ty, cap} | {type:'flipTree', x, y}
   var moves=[];
   var x,y;
   // Flips
   for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
     var c=st.board[y][x];
-    if(c&&!c.open)moves.push({type:'flip',x:x,y:y});
+    if(c&&!c.open&&!isTree(st,x,y))moves.push({type:'flip',x:x,y:y});
+  }
+  // Flip trees (either side may flip an unknown tree; after a same-camp reveal only that camp)
+  for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
+    if(isTree(st,x,y)&&canFlipTree(st,x,y,side))moves.push({type:'flipTree',x:x,y:y});
   }
   // Piece moves
   for(y=0;y<ROWS;y++)for(x=0;x<COLS;x++){
@@ -225,6 +251,7 @@ function getMoves(st, side){
     for(var i=0;i<4;i++){
       var nx=x+D[i][0], ny=y+D[i][1];
       if(!inBounds(nx,ny))continue;
+      if(isTree(st,nx,ny))continue; // trees are occupied; use climbTree/flipTree
       var t=st.board[ny][nx];
       if(!t){
         moves.push({type:'move',fx:x,fy:y,tx:nx,ty:ny,cap:null});
@@ -235,11 +262,37 @@ function getMoves(st, side){
         }else if(canCapture(c,t)){
           moves.push({type:'move',fx:x,fy:y,tx:nx,ty:ny,cap:{r:t.r,c:t.c}});
         }
+      }else if(!t.open&&TREE_CLIMBERS[c.r]){
+        // Climb onto adjacent face-down card
+        moves.push({type:'climbTree',fx:x,fy:y,tx:nx,ty:ny});
       }
     }
     // Mouse can enter hole from corner
     if(c.r===1&&isHoleCorner(x,y)&&!st.hole){
       moves.push({type:'enterHole',fx:x,fy:y});
+    }
+  }
+  // Tree tops: climb down to adjacent empty, or capture weaker adjacent enemy
+  for(var tk in st.trees){
+    var tr=st.trees[tk];
+    if(tr.top.c!==side)continue;
+    var txy=tk.split(','), tx0=+txy[0], ty0=+txy[1];
+    var D2=[[1,0],[-1,0],[0,1],[0,-1]];
+    for(var j=0;j<4;j++){
+      var dx=tx0+D2[j][0], dy=ty0+D2[j][1];
+      if(!inBounds(dx,dy))continue;
+      if(isTree(st,dx,dy))continue;
+      var dt=st.board[dy][dx];
+      if(!dt){
+        moves.push({type:'climbDown',fx:tx0,fy:ty0,tx:dx,ty:dy,cap:null,pr:tr.top.r});
+      }else if(dt.open&&dt.c!==side){
+        if(canCapture(tr.top,dt)){
+          moves.push({type:'climbDown',fx:tx0,fy:ty0,tx:dx,ty:dy,cap:{r:dt.r,c:dt.c},pr:tr.top.r});
+        }else if(tr.top.r===dt.r){
+          moves.push({type:'sacrifice',fromTree:true,fx:tx0,fy:ty0,tx:dx,ty:dy,foe:{r:dt.r,c:dt.c}});
+        }
+      }
+      // face-down non-tree: cannot jump tree-to-tree (must climb down first)
     }
   }
   // Mouse in hole can exit to any corner
@@ -275,6 +328,53 @@ function doMove(st, m){
       else{st.ai=c.c;st.human=(c.c==='red'?'blue':'red');}
     }
     st.lastFlip=st.moveCount;
+  }else if(m.type==='climbTree'){
+    // Open tiger/leopard/cat jumps onto adjacent face-down card
+    var pcl=st.board[m.fy][m.fx];
+    var bot=st.board[m.ty][m.tx];
+    if(bot)bot.known=false;
+    st.trees[treeKey(m.tx,m.ty)]={top:{c:pcl.c,r:pcl.r},flips:0,flipCamp:null};
+    st.board[m.fy][m.fx]=null;
+  }else if(m.type==='climbDown'){
+    // Tree top moves to adjacent empty or captures weaker enemy
+    var tk=treeKey(m.fx,m.fy), tr=st.trees[tk];
+    var tc=st.board[m.ty][m.tx];
+    if(tc){cap=tc;recordCapture(st,tc.c,tc.r);}
+    st.board[m.ty][m.tx]={c:tr.top.c,r:tr.top.r,open:true};
+    delete st.trees[tk];
+    // bottom card stays face-down at (fx,fy), keeps its known flag
+  }else if(m.type==='flipTree'){
+    // Flip the tree card underneath the climber
+    var fk=treeKey(m.x,m.y), ft=st.trees[fk];
+    var fb=st.board[m.y][m.x];
+    ft.flips++;
+    fb.known=true;
+    if(fb.c!==ft.top.c){
+      // Enemy: compare sizes, bigger stays face-up, tree gone
+      if(ft.top.r>fb.r){
+        recordCapture(st,fb.c,fb.r);
+        cap={r:fb.r,c:fb.c};
+        st.board[m.y][m.x]={c:ft.top.c,r:ft.top.r,open:true};
+      }else if(ft.top.r<fb.r){
+        recordCapture(st,ft.top.c,ft.top.r);
+        cap={r:ft.top.r,c:ft.top.c};
+        st.board[m.y][m.x]={c:fb.c,r:fb.r,open:true};
+      }else{
+        // Equal: mutual destruction
+        recordCapture(st,ft.top.c,ft.top.r);
+        recordCapture(st,fb.c,fb.r);
+        cap={r:fb.r,c:fb.c,sacrifice:true,own:{r:ft.top.r,c:ft.top.c}};
+        st.board[m.y][m.x]=null;
+      }
+      delete st.trees[fk];
+    }else{
+      // Same camp: swap — bottom comes up open, top goes down face-down (known)
+      var oldTop=ft.top;
+      st.board[m.y][m.x]={c:oldTop.c,r:oldTop.r,open:false,known:true};
+      ft.top={c:fb.c,r:fb.r};
+      ft.flipCamp=fb.c; // only this camp may flip this tree afterwards
+    }
+    st.lastFlip=st.moveCount;
   }else if(m.type==='move'){
     var pc=st.board[m.fy][m.fx];
     var tc=st.board[m.ty][m.tx];
@@ -283,9 +383,14 @@ function doMove(st, m){
     st.board[m.fy][m.fx]=null;
   }else if(m.type==='sacrifice'){
     // Mutual destruction: both pieces removed from board
-    var att=m.fromHole?st.hole:st.board[m.fy][m.fx];
+    var att;
+    if(m.fromHole){att=st.hole;}
+    else if(m.fromTree){att=st.trees[treeKey(m.fx,m.fy)].top;}
+    else{att=st.board[m.fy][m.fx];}
     var tc2=st.board[m.ty][m.tx];
-    if(m.fromHole)st.hole=null; else st.board[m.fy][m.fx]=null;
+    if(m.fromHole)st.hole=null;
+    else if(m.fromTree)delete st.trees[treeKey(m.fx,m.fy)];
+    else st.board[m.fy][m.fx]=null;
     st.board[m.ty][m.tx]=null;
     recordCapture(st,att.c,att.r); // human's lost piece -> capAI
     recordCapture(st,tc2.c,tc2.r); // AI's lost piece -> capHuman
@@ -320,6 +425,9 @@ function countCards(st, color){
     if(c&&c.c===color)n++;
   }
   if(st.hole&&st.hole.c===color)n++;
+  for(var k in st.trees){
+    if(st.trees[k].top.c===color)n++;
+  }
   return n;
 }
 
@@ -349,6 +457,17 @@ function realMove(st,m){
     if(m.type==='move'){
       var pc=st.board[m.fy][m.fx];
       e={by:actor,type:'move',n:st.moveCount+1,pr:pc.r,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};
+    }else if(m.type==='climbTree'){
+      var pct=st.board[m.fy][m.fx];
+      e={by:actor,type:'climbTree',n:st.moveCount+1,pr:pct.r,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};
+    }else if(m.type==='climbDown'){
+      var pcd=st.trees[treeKey(m.fx,m.fy)].top;
+      e={by:actor,type:'climbDown',n:st.moveCount+1,pr:pcd.r,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};
+    }else if(m.type==='flipTree'){
+      var pft=st.trees[treeKey(m.x,m.y)].top;
+      var pfb=st.board[m.y][m.x];
+      e={by:actor,type:'flipTree',n:st.moveCount+1,pr:pft.r,x:m.x,y:m.y,
+         topC:pft.c,topR:pft.r,botC:pfb.c,botR:pfb.r,botKnown:!!pfb.known};
     }else if(m.type==='sacrifice'){
       var att=m.fromHole?st.hole:st.board[m.fy][m.fx];
       e={by:actor,type:'sacrifice',n:st.moveCount+1,ownR:att.r,foeR:(m.foe?m.foe.r:null),fromHole:!!m.fromHole,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};
@@ -360,13 +479,19 @@ function realMove(st,m){
       e={by:actor,type:'exitHole',n:st.moveCount+1,pr:pc3.r,tx:m.tx,ty:m.ty};
     }
     // Last-move highlight for the real game (minimax uses _doMove on clones, never here)
-    if(st===G&&m.type!=='flip'){
+    if(st===G&&m.type!=='flip'&&m.type!=='flipTree'){
       var lmImg=null,lmFx=m.fx,lmFy=m.fy,lmTx=m.tx,lmTy=m.ty;
       if(m.type==='move'){
         var _pc=st.board[m.fy][m.fx];
         if(_pc)lmImg='img/'+_pc.c+'_'+_pc.r+'.png';
+      }else if(m.type==='climbTree'){
+        var _pct=st.board[m.fy][m.fx];
+        if(_pct)lmImg='img/'+_pct.c+'_'+_pct.r+'.png';
+      }else if(m.type==='climbDown'){
+        var _pcd=st.trees[treeKey(m.fx,m.fy)];
+        if(_pcd)lmImg='img/'+_pcd.top.c+'_'+_pcd.top.r+'.png';
       }else if(m.type==='sacrifice'){
-        var _at=m.fromHole?st.hole:st.board[m.fy][m.fx];
+        var _at=m.fromHole?st.hole:(m.fromTree?st.trees[treeKey(m.fx,m.fy)].top:st.board[m.fy][m.fx]);
         if(_at)lmImg='img/'+_at.c+'_'+_at.r+'.png';
         if(m.fromHole){lmFx=HOLE_CX;lmFy=HOLE_CY;}
       }else if(m.type==='enterHole'){
@@ -384,16 +509,20 @@ function realMove(st,m){
       }
     }
     cap=doMoveCore(st,m);
-    if(e&&(e.type==='move'||e.type==='exitHole')&&cap)e.capR=cap.r;
+    if(e&&(e.type==='move'||e.type==='exitHole'||e.type==='climbDown')&&cap)e.capR=cap.r;
     // Toast text hints for flips and captures (like daoshaji)
     if(st===G&&e&&typeof toast==='function'){
       var _isLocal=netActive()?(e.by===(NET.role==='host'?'human':'ai')):(e.by==='human');
       var _opp=oppName();
       if(e.type==='flip'){
         toast(_isLocal?('翻开：'+RANK_NAME[e.cr]):(_opp+'翻开了'+RANK_NAME[e.cr]));
+      }else if(e.type==='flipTree'){
+        toast(_isLocal?('翻树！'):(_opp+'翻树！'));
+      }else if(e.type==='climbTree'){
+        toast(_isLocal?('上树🌲'):(_opp+'上树🌲'));
       }else if(e.type==='sacrifice'){
         toast('💥 同归于尽！');
-      }else if((e.type==='move'||e.type==='exitHole')&&e.capR){
+      }else if((e.type==='move'||e.type==='exitHole'||e.type==='climbDown')&&e.capR){
         var _capName=RANK_NAME[e.capR];
         toast(_isLocal?('吃掉了对方'+_capName+'！'):(_opp+'吃掉了你的'+_capName+'！'));
       }
@@ -431,6 +560,23 @@ function gameSummary(st){
     var L=st.log[k], s2='第'+L.n+'手 '+who2(L.by)+' ';
     if(L.type==='flip'){
       s2+='翻'+pos(L.x,L.y)+'='+colN(L.cc)+RANK_NAME[L.cr];
+    }else if(L.type==='flipTree'){
+      var fc=L.by==='human'?hC:aC, fc2=fc==='red'?'blue':'red';
+      s2+='翻树'+pos(L.x,L.y)+'(树上'+colN(fc)+RANK_NAME[L.pr]+' vs 树底'+colN(L.botC)+RANK_NAME[L.botR]+')';
+      if(L.botC!==L.topC){
+        if(L.topR>L.botR)s2+='→'+colN(fc)+RANK_NAME[L.topR]+'胜，吃'+colN(fc2)+RANK_NAME[L.botR];
+        else if(L.topR<L.botR)s2+='→'+colN(fc2)+RANK_NAME[L.botR]+'胜，吃'+colN(fc)+RANK_NAME[L.topR];
+        else s2+='→同级💥同归于尽';
+      }else{
+        s2+='→同阵营换位';
+      }
+    }else if(L.type==='climbTree'){
+      var cc=L.by==='human'?hC:aC;
+      s2+=colN(cc)+RANK_NAME[L.pr]+pos(L.fx,L.fy)+'→上树'+pos(L.tx,L.ty)+'🌲';
+    }else if(L.type==='climbDown'){
+      var dc=L.by==='human'?hC:aC, dc2=dc==='red'?'blue':'red';
+      s2+='树上'+colN(dc)+RANK_NAME[L.pr]+pos(L.fx,L.fy)+'→下树'+pos(L.tx,L.ty);
+      if(L.capR)s2+=' 吃'+colN(dc2)+RANK_NAME[L.capR];
     }else if(L.type==='move'){
       var mc=L.by==='human'?hC:aC, oc=mc==='red'?'blue':'red';
       s2+=colN(mc)+RANK_NAME[L.pr]+pos(L.fx,L.fy)+'→'+pos(L.tx,L.ty);
@@ -473,6 +619,12 @@ function evaluate(st, aiColor){
     var hv=RANK_VAL[st.hole.r]+50; // safe bonus
     if(st.hole.c===aiColor)score+=hv; else score-=hv;
   }
+  // Tree tops are safe (cannot be captured while on tree)
+  for(var tk2 in st.trees){
+    var tr2=st.trees[tk2];
+    var tv=RANK_VAL[tr2.top.r]+40; // safe bonus
+    if(tr2.top.c===aiColor)score+=tv; else score-=tv;
+  }
   // Unflipped cards: expected value (unknown, slight bonus for having more)
   var aiUn=0, oppUn=0;
   // (we don't know colors of unflipped, so skip detailed)
@@ -511,11 +663,17 @@ function cloneState(st){
   var nb=[];
   for(var y=0;y<ROWS;y++){nb.push([]);for(var x=0;x<COLS;x++){
     var c=st.board[y][x];
-    nb[y].push(c?{c:c.c,r:c.r,open:c.open}:null);
+    nb[y].push(c?{c:c.c,r:c.r,open:c.open,known:!!c.known}:null);
   }}
+  var nt={};
+  for(var k in st.trees){
+    var t=st.trees[k];
+    nt[k]={top:{c:t.top.c,r:t.top.r},flips:t.flips,flipCamp:t.flipCamp};
+  }
   return {
     board:nb,
     hole:st.hole?{c:st.hole.c,r:st.hole.r,open:true}:null,
+    trees:nt,
     turn:st.turn, human:st.human, ai:st.ai,
     over:st.over, winner:st.winner,
     moveCount:st.moveCount, lastFlip:st.lastFlip,
@@ -591,6 +749,13 @@ function isReverseMove(m, prev){
   }
   if(m.type==='enterHole'&&prev.type==='exitHole'){
     return m.fx===prev.tx&&m.fy===prev.ty;
+  }
+  // Climbing up then immediately down (or down then up) is oscillation
+  if(m.type==='climbDown'&&prev.type==='climbTree'){
+    return m.fx===prev.tx&&m.fy===prev.ty;
+  }
+  if(m.type==='climbTree'&&prev.type==='climbDown'){
+    return m.tx===prev.fx&&m.ty===prev.fy;
   }
   return false;
 }
@@ -817,9 +982,48 @@ function render(){
     (function(x,y){
       var c=G.board[y][x];
       if(!c)return;
+      var tk=treeKey(x,y), tree=G.trees[tk];
+      if(tree){
+        // Tree: bottom card (partially visible) + top piece + badges
+        var known=!!c.known;
+        // bottom
+        var db=document.createElement('div');
+        db.className='card card-back tree-bottom'+(known?' known-down':'');
+        db.style.left=px(x)+'%';db.style.top=py(y)+'%';
+        db.innerHTML='<span>兽</span>';
+        db.style.aspectRatio='2/3';
+        db.addEventListener('click',function(){onTap(x,y);});
+        boardEl.appendChild(db);
+        // top piece
+        var dt=document.createElement('div');
+        dt.className='card tree-top'+(sel&&sel.tree&&sel.x===x&&sel.y===y?' selected':'');
+        dt.style.left=px(x)+'%';dt.style.top=py(y)+'%';
+        dt.style.width=cardW+'%';
+        var img=document.createElement('img');
+        img.src='img/'+tree.top.c+'_'+tree.top.r+'.png';
+        img.alt='';
+        dt.appendChild(img);
+        // tree badge (tap to flip tree)
+        var badge=document.createElement('span');
+        badge.className='tree-badge';
+        badge.textContent='🌲';
+        badge.title='翻树';
+        badge.addEventListener('click',function(ev){ev.stopPropagation();onTapTreeBadge(x,y);});
+        dt.appendChild(badge);
+        // known-bottom tag: e.g. "猫树"
+        if(known){
+          var tag=document.createElement('span');
+          tag.className='tree-known-tag';
+          tag.textContent=RANK_NAME[c.r]+'树';
+          dt.appendChild(tag);
+        }
+        dt.addEventListener('click',function(){onTap(x,y);});
+        boardEl.appendChild(dt);
+        return;
+      }
       var d=document.createElement('div');
       d.className='card';
-      if(sel&&sel.x===x&&sel.y===y)d.classList.add('selected');
+      if(sel&&sel.x===x&&sel.y===y&&!sel.tree)d.classList.add('selected');
       d.style.left=px(x)+'%';d.style.top=py(y)+'%';
       d.style.width=cardW+'%';
       if(c.open){
@@ -833,6 +1037,7 @@ function render(){
         d.appendChild(img);
       }else{
         d.classList.add('card-back');
+        if(c.known)d.classList.add('known-down');
         d.innerHTML='<span>兽</span>';
         d.style.aspectRatio='2/3';
       }
@@ -919,30 +1124,29 @@ function toast(msg){
   setTimeout(function(){t.style.display='none';},1500);
 }
 
+function getMovesForTree(st,x,y,color){
+  var all=getMoves(st,color);
+  return all.filter(function(m){
+    return (m.fx===x&&m.fy===y&&(m.type==='climbDown'||(m.type==='sacrifice'&&m.fromTree)));
+  });
+}
+function onTapTreeBadge(x,y){
+  if(!G||G.over||aiThinking)return;
+  if(!isMyTurn())return;
+  if(!canFlipTree(G,x,y,myColor())){toast('这棵树不能再翻了');return;}
+  var fm={type:'flipTree',x:x,y:y};
+  realMove(G,fm);
+  sel=null;hints=[];
+  afterHumanMove(fm);
+}
 /* ===== Interaction ===== */
 function onTap(x,y){
   if(!G||G.over||aiThinking)return;
   if(!isMyTurn())return;
   var c=G.board[y][x];
+  var tk=treeKey(x,y), tree=G.trees[tk];
   
-  // Flip face-down card
-  if(c&&!c.open){
-    var fm={type:'flip',x:x,y:y};
-    realMove(G,fm);
-    afterHumanMove(fm);
-    return;
-  }
-  // Deselect
-  if(sel&&sel.x===x&&sel.y===y){sel=null;hints=[];render();return;}
-  // Select own piece
-  if(c&&c.open&&G.human&&c.c===myColor()){
-    sel={x:x,y:y};
-    hints=getMovesFor(G,x,y,myColor());
-    render();
-    if(!hints.length)toast('这张牌没有可走的位置');
-    return;
-  }
-  // Try move to tapped location
+  // If something is selected, try to match a hint first (covers climbTree to face-down, climbDown)
   if(sel){
     for(var i=0;i<hints.length;i++){
       var h=hints[i];
@@ -953,8 +1157,55 @@ function onTap(x,y){
         return;
       }
     }
-    sel=null;hints=[];render();
   }
+  // Tree position
+  if(tree){
+    // Tapping the already-selected tree again flips it
+    if(sel&&sel.tree&&sel.x===x&&sel.y===y){
+      if(!canFlipTree(G,x,y,myColor())){toast('这棵树不能再翻了');sel=null;hints=[];render();return;}
+      var fm={type:'flipTree',x:x,y:y};
+      realMove(G,fm);
+      sel=null;hints=[];
+      afterHumanMove(fm);
+      return;
+    }
+    if(tree.top.c===myColor()){
+      sel={x:x,y:y,tree:true};
+      hints=getMovesForTree(G,x,y,myColor());
+      render();
+      if(!hints.length)toast('树上这张没有可下的位置（再点一次可翻树）');
+      else toast('已选中树上棋子，再点一次翻树');
+      return;
+    }else{
+      // Opponent's tree: flip it
+      if(!canFlipTree(G,x,y,myColor())){toast('这棵树不能再翻了');return;}
+      var fm2={type:'flipTree',x:x,y:y};
+      realMove(G,fm2);
+      sel=null;hints=[];
+      afterHumanMove(fm2);
+      return;
+    }
+  }
+  
+  // Flip face-down card
+  if(c&&!c.open){
+    var fm3={type:'flip',x:x,y:y};
+    realMove(G,fm3);
+    afterHumanMove(fm3);
+    return;
+  }
+  // Deselect
+  if(sel&&sel.x===x&&sel.y===y&&!sel.tree){sel=null;hints=[];render();return;}
+  // Select own piece
+  if(c&&c.open&&G.human&&c.c===myColor()){
+    sel={x:x,y:y};
+    hints=getMovesFor(G,x,y,myColor());
+    render();
+    if(!hints.length)toast('这张牌没有可走的位置');
+    return;
+  }
+  // No hint matched and nothing selected: clear
+  sel=null;hints=[];render();
 }
 
 function onTapHoleArea(){
@@ -1006,17 +1257,24 @@ function getMovesForHole(st,color){
 // info instead of the true hidden layout.
 var _doMove=(function(orig){
   return function(st,m){
-    if(m&&m.type==='flip'){
-      var hx=[],hy=[],_sx,_sy;
-      for(_sy=0;_sy<ROWS;_sy++)for(_sx=0;_sx<COLS;_sx++){
-        var _q=st.board[_sy][_sx];
-        if(_q&&!_q.open&&!(_sx===m.x&&_sy===m.y)){hx.push(_sx);hy.push(_sy);}
-      }
-      if(hx.length){
-        var _ri=(Math.random()*hx.length)|0;
-        var _tmp=st.board[m.y][m.x];
-        st.board[m.y][m.x]=st.board[hy[_ri]][hx[_ri]];
-        st.board[hy[_ri]][hx[_ri]]=_tmp;
+    if(m&&(m.type==='flip'||m.type==='flipTree')){
+      var tx=m.x, ty=m.y;
+      var target=st.board[ty][tx];
+      // Only sample when the target identity is truly unknown.
+      if(target&&!target.known){
+        var hx=[],hy=[],_sx,_sy;
+        for(_sy=0;_sy<ROWS;_sy++)for(_sx=0;_sx<COLS;_sx++){
+          var _q=st.board[_sy][_sx];
+          // Only swap with truly unknown cards: face-down, not a tree bottom,
+          // and not the tree being flipped.
+          if(_q&&!_q.open&&!_q.known&&!isTree(st,_sx,_sy)&&!(_sx===tx&&_sy===ty)){hx.push(_sx);hy.push(_sy);}
+        }
+        if(hx.length){
+          var _ri=(Math.random()*hx.length)|0;
+          var _tmp=st.board[ty][tx];
+          st.board[ty][tx]=st.board[hy[_ri]][hx[_ri]];
+          st.board[hy[_ri]][hx[_ri]]=_tmp;
+        }
       }
     }
     return orig(st,m);
