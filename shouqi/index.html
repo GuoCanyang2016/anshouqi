@@ -421,7 +421,35 @@ function gameSummary(st){
   if(holes.length)parts.push(holes.join('，'));
   if(ratEle)parts.push('鼠吃象'+ratEle+'次');
   if(sac)parts.push('同归于尽'+sac+'次');
-  return parts.join(' ｜ ');
+  // 完整棋谱：每一步，供小miu复盘
+  var hC=st.human, aC=(hC==='red'?'blue':'red');
+  var colN=function(c){return c==='red'?'红':'蓝';};
+  var who2=function(b){return b==='human'?'我':foe2;};
+  var pos=function(x,y){return '('+(x+1)+','+(y+1)+')';};
+  var lines=[];
+  for(var k=0;k<st.log.length;k++){
+    var L=st.log[k], s2='第'+L.n+'手 '+who2(L.by)+' ';
+    if(L.type==='flip'){
+      s2+='翻'+pos(L.x,L.y)+'='+colN(L.cc)+RANK_NAME[L.cr];
+    }else if(L.type==='move'){
+      var mc=L.by==='human'?hC:aC, oc=mc==='red'?'blue':'red';
+      s2+=colN(mc)+RANK_NAME[L.pr]+pos(L.fx,L.fy)+'→'+pos(L.tx,L.ty);
+      if(L.capR)s2+=' 吃'+colN(oc)+RANK_NAME[L.capR];
+    }else if(L.type==='sacrifice'){
+      var sc=L.by==='human'?hC:aC;
+      s2+=colN(sc)+RANK_NAME[L.ownR]+(L.fromHole?'(洞中)':'')+pos(L.fx,L.fy)+'💥与'+RANK_NAME[L.foeR]+'同归于尽';
+    }else if(L.type==='enterHole'){
+      var ec=L.by==='human'?hC:aC;
+      s2+=colN(ec)+RANK_NAME[L.pr]+pos(L.fx,L.fy)+'→进洞';
+    }else if(L.type==='exitHole'){
+      var xc=L.by==='human'?hC:aC, xc2=xc==='red'?'blue':'red';
+      s2+='洞中'+colN(xc)+RANK_NAME[L.pr]+'→'+pos(L.tx,L.ty);
+      if(L.capR)s2+=' 吃'+colN(xc2)+RANK_NAME[L.capR];
+    }
+    lines.push(s2);
+  }
+  var head=parts.join(' ｜ ');
+  return lines.length?head+'\n'+lines.join('\n'):head;
 }
 
 /* ===== AI (2-ply minimax with alpha-beta) ===== */
