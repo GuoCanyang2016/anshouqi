@@ -724,7 +724,8 @@ function gameSummary(st){
   for(var k=0;k<log.length;k++){
     var L=log[k], s2='第'+L.n+'手 ';
     if(L.type==='flip'){
-      s2+=who2(L.cc)+' 翻'+pos(L.x,L.y)+'='+colN(L.cc)+PN(L.ct);
+      var fc=st[L.by]||me; // 按动手的 slot 标人，不按牌色（AI 翻到红牌也算 AI 翻的）
+      s2+=who2(fc)+' 翻'+pos(L.x,L.y)+'='+colN(L.cc)+PN(L.ct);
     }else if(L.type==='move'){
       var mc=st[L.by]||me;
       s2+=who2(mc)+' '+colN(mc)+PN(L.pt)+pos(L.fx,L.fy)+'→'+pos(L.tx,L.ty);
