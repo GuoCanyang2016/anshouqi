@@ -971,10 +971,11 @@ function render(){
     var hd=document.createElement('div');
     hd.className='card'+(sel==='hole'?' selected':'');
     hd.style.left=px(HOLE_CX)+'%';hd.style.top=py(HOLE_CY)+'%';
-    hd.style.width='13%';
+    hd.style.width='10%';
     var img=document.createElement('img');
     img.src='img/'+G.hole.c+'_'+G.hole.r+'.png';
     img.alt='';
+    img.style.pointerEvents='none';
     hd.appendChild(img);
     hd.addEventListener('click',function(){onTapHole();});
     boardEl.appendChild(hd);
