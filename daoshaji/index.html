@@ -673,7 +673,26 @@ function gameSummary(st){
   if(rocket)parts.push('火箭同归于尽'+rocket+'次');
   if(pick)parts.push('拾取武器'+pick+'次');
   if(st.winReason)parts.push('（'+st.winReason+'）');
-  return parts.join(' ｜ ');
+  // 完整棋谱：每一步，供小miu复盘
+  var colN=function(c){return c==='red'?'红':'蓝';};
+  var pos=function(x,y){return '('+(x+1)+','+(y+1)+')';};
+  var who2=function(c){return c===me?'我':foe;};
+  var lines=[];
+  for(var k=0;k<log.length;k++){
+    var L=log[k], s2='第'+L.n+'手 ';
+    if(L.type==='flip'){
+      s2+=who2(L.cc)+' 翻'+pos(L.x,L.y)+'='+colN(L.cc)+NAMES[L.ct];
+    }else{
+      var mc=L.pc||me, oc=mc==='red'?'blue':'red';
+      s2+=who2(mc)+' '+colN(mc)+NAMES[L.pt]+pos(L.fx,L.fy)+'→'+pos(L.tx,L.ty);
+      if(L.type==='pickup'&&L.pickupW)s2+=' 拾取'+NAMES[L.pickupW];
+      else if(L.type==='capture'&&L.capT)s2+=' 吃'+colN(oc)+NAMES[L.capT];
+      else if(L.type==='rocket')s2+=' 💥与'+colN(oc)+NAMES[L.capT||'']+'同归于尽';
+    }
+    lines.push(s2);
+  }
+  var head=parts.join(' ｜ ');
+  return lines.length?head+'\n'+lines.join('\n'):head;
 }
 function copyText(txt){
   var ok=function(){toast(netActive()?'战绩已复制':'战绩已复制，发给小miu复盘吧');};
@@ -938,7 +957,10 @@ function onTap(x,y){
       if(h.tx===x&&h.ty===y){
         var mover=G.board[h.fy][h.fx];
         var result=doMoveUI(G,h);
-        logMove({type:result.type,fx:h.fx,fy:h.fy,tx:h.tx,ty:h.ty});
+        logMove({type:result.type,fx:h.fx,fy:h.fy,tx:h.tx,ty:h.ty,
+          pt:mover.t,pc:mover.c,
+          capT:result.captured?result.captured.t:null,
+          pickupW:(result.pickup&&result.pickup.length)?result.pickup[0].weapon:null});
         setLastMove(h.fx,h.fy,h.tx,h.ty,imgSrc(mover.c,mover.t));
         var msg=pickupMsg(result.pickup);
         if(result.rocket){
@@ -1009,7 +1031,10 @@ function applyPeerMove(m){
     aiPrevMove={fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty}; // track for anti-oscillation
     result=doMoveUI(G,m);
     if(result){
-      logMove({type:result.type,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty});
+      logMove({type:result.type,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty,
+        pt:mover.t,pc:mover.c,
+        capT:result.captured?result.captured.t:null,
+        pickupW:(result.pickup&&result.pickup.length)?result.pickup[0].weapon:null});
       setLastMove(m.fx,m.fy,m.tx,m.ty,imgSrc(mover.c,mover.t));
       var amsg=pickupMsg(result.pickup);
       if(result.rocket)amsg='💥 '+oppName()+'的火箭同归于尽！';
