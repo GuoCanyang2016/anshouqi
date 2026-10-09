@@ -331,7 +331,7 @@ function doMove(st,m){
   if(m.type==='move'){
     st.board[m.ty][m.tx]=att;
     st.board[m.fy][m.fx]=null;
-    logMove(st,{type:'move',fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty});
+    logMove(st,{type:'move',fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty,pt:att.t});
     return {};
   }
   if(m.type==='capture'){
@@ -715,7 +715,31 @@ function gameSummary(st){
   if(flag)parts.push('工兵夺旗获胜');
   if(cap)parts.push('吃子'+cap+'次');
   if(both)parts.push('同归于尽'+both+'次'+(bomb?'(炸弹'+bomb+'次)':''));
-  return parts.join(' ｜ ');
+  // 完整棋谱：每一步，供小miu复盘
+  var PN=function(t){return (PIECES[t]&&PIECES[t].name)?PIECES[t].name:t;};
+  var colN=function(c){return c==='red'?'红':'蓝';};
+  var pos=function(x,y){return '('+(x+1)+','+(y+1)+')';};
+  var who2=function(c){return c===me?'我':foe;};
+  var lines=[];
+  for(var k=0;k<log.length;k++){
+    var L=log[k], s2='第'+L.n+'手 ';
+    if(L.type==='flip'){
+      s2+=who2(L.cc)+' 翻'+pos(L.x,L.y)+'='+colN(L.cc)+PN(L.ct);
+    }else if(L.type==='move'){
+      var mc=st[L.by]||me;
+      s2+=who2(mc)+' '+colN(mc)+PN(L.pt)+pos(L.fx,L.fy)+'→'+pos(L.tx,L.ty);
+    }else if(L.type==='capture'){
+      var ac=st[L.by]||me, dc=ac==='red'?'blue':'red';
+      s2+=who2(ac)+' '+colN(ac)+PN(L.attT)+pos(L.fx,L.fy)+'→'+pos(L.tx,L.ty);
+      if(L.defT==='junqi')s2+=' 夺旗获胜🏁';
+      else if(L.result==='attacker')s2+=' 吃'+colN(dc)+PN(L.defT);
+      else if(L.result==='defender')s2+=' 被'+colN(dc)+PN(L.defT)+'吃掉';
+      else s2+=' 💥与'+colN(dc)+PN(L.defT)+'同归于尽';
+    }
+    lines.push(s2);
+  }
+  var head=parts.join(' ｜ ');
+  return lines.length?head+'\n'+lines.join('\n'):head;
 }
 function copyText(txt){
   var ok=function(){toast('战绩已复制，发给小miu复盘吧');};
