@@ -6,7 +6,7 @@
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="../netplay.js"></script>
 <title>兽棋 - 你 vs 小miu</title>
-<style>
+<style>.ver{position:fixed;bottom:6px;right:10px;font-size:11px;color:#888;opacity:.7;pointer-events:none;z-index:99}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(#fbf5e3,#f3e7c6);color:#5a4632;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:10px;user-select:none}
 #topbar{width:100%;max-width:480px;display:flex;justify-content:space-between;align-items:center;padding:8px 4px;font-size:15px}
@@ -1431,5 +1431,5 @@ if(typeof Netplay!=='undefined'){
   });
 }else newGame();
 </script>
-</body>
+<div class="ver">V1.0</div></body>
 </html>
