@@ -6,7 +6,7 @@
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="../netplay.js"></script>
 <title>军棋 - 你 vs 小miu</title>
-<style>
+<style>.ver{position:fixed;bottom:6px;right:10px;font-size:11px;color:#888;opacity:.7;pointer-events:none;z-index:99}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(#fbf5e3,#f3e7c6);color:#5a4632;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:16px 12px;user-select:none;-webkit-user-select:none}
 #topbar{width:100%;max-width:480px;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
@@ -1163,6 +1163,21 @@ function isPurposefulSuicide(st,m,aiColor){
   }
   return false;
 }
+// Tactical: capture the enemy engineer on sight (it can steal the flag and win).
+// Returns the capture move, or null. Skips suicides with big pieces.
+function findEngineerKill(st,moves,aiColor){
+  var opp=aiColor==='red'?'blue':'red';
+  for(var i=0;i<moves.length;i++){
+    var m=moves[i];
+    if(m.type!=='capture'||!m.foe||m.foe.t!=='gongbing'||m.foe.c!==opp) continue;
+    var att=st.board[m.fy]&&st.board[m.fy][m.fx];
+    if(!att) continue;
+    // Don't throw away a big piece to kill the engineer (search decides those)
+    if(m.result==='defender'&&PIECES[att.t].rank>=7) continue;
+    return m;
+  }
+  return null;
+}
 function aiChoose(st, aiColor){
   var aiSlot=aiSlotOf(st,aiColor);
   st=cloneState(st);
@@ -1191,6 +1206,14 @@ function aiChoose(st, aiColor){
     aiDoMove(_ns,tac,aiColor);
     var _v=minimax(_ns,2,-Infinity,Infinity,aiSlot,aiColor,deadline);
     if(_v>-50000) return tac;
+  }
+  // Kill the enemy engineer on sight (tactical priority).
+  var ek=findEngineerKill(st,rootMoves,aiColor);
+  if(ek){
+    var _ns0=cloneState(st);
+    aiDoMove(_ns0,ek,aiColor);
+    var _v0=minimax(_ns0,2,-Infinity,Infinity,aiSlot,aiColor,deadline);
+    if(_v0>-50000) return ek;
   }
   // Defensive emergency: enemy engineer within 3 of the open flag.
   // Step next to it / capture it instead of grabbing material elsewhere.
@@ -1301,5 +1324,5 @@ if(typeof Netplay!=='undefined'){
   });
 }else newGame();
 </script>
-</body>
+<div class="ver">V1.1</div></body>
 </html>
