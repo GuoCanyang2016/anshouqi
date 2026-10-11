@@ -70,8 +70,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 </div>
 <div id="board-wrap"><div id="board"><svg id="grid-svg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg></div></div>
 <div id="captured">
-  <div><div style="margin-bottom:4px">你的缴获</div><div class="cap-group" id="cap-human"></div></div>
-  <div><div style="margin-bottom:4px">小miu的缴获</div><div class="cap-group" id="cap-ai"></div></div>
+  <div><div style="margin-bottom:4px" id="cap-title-human">你的缴获</div><div class="cap-group" id="cap-human"></div></div>
+  <div><div style="margin-bottom:4px" id="cap-title-ai">小miu的缴获</div><div class="cap-group" id="cap-ai"></div></div>
 </div>
 <div id="rules">
 <b>军棋（简化翻牌版）：</b><br>
@@ -82,7 +82,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 <b>地雷：</b>不能动；除炸弹外，任何子撞上都同归于尽，只有工兵能排雷（工兵存活）。炸弹不能碰地雷。<br>
 <b>炸弹：</b>主动撞或被撞，双方同归于尽（只能炸人，不能炸军旗、地雷）。炸弹不能空走：只能直接撞上对方的牌，不能走到空位上（哪怕旁边有对方的牌也不行）。<br>
 <b>军旗：</b>中立，不能动；只有工兵能拿，拿到军旗直接获胜。<br>
-<b>胜负：</b>工兵拿到军旗获胜；或对方无棋可走判负。<br>\n<b>同级：</b>同级相遇双方同归于尽。
+<b>胜负：</b>工兵拿到军旗获胜；或对方无棋可走判负。<br>
+<b>同级：</b>同级相遇双方同归于尽。
 </div>
 <div id="toast"></div>
 <div id="overlay"><div id="ov-card"><h2 id="ov-text"></h2>
@@ -137,7 +138,7 @@ function oppName(){return netActive()?'对方':'小miu';}
 function peerSlot(){return NET.role==='host'?'ai':'human';}
 function localSlot(){return NET.role==='host'?'human':'ai';}
 function snapG(){return JSON.parse(JSON.stringify(G));}
-function loadSnap(st){G=st;sel=null;hints=[];aiThinking=false;render();refreshNetStatus();}
+function loadSnap(st){G=st;sel=null;hints=[];aiThinking=false;hideOverlay();document.getElementById('ov-rematch').style.display='none';render();refreshNetStatus();}
 function refreshNetStatus(){
   if(!G||G.over)return;
   if(isMyTurn()){
@@ -162,11 +163,11 @@ function netLobby(){
       if(NET.mode!=='net')return;
       Netplay.showDisconnect(
         function(){setStatus('正在重新连接…');NET.session.reconnect();},
-        function(){NET.mode='ai';NET.session=null;newGame();});
+        function(){NET.mode='ai';NET.role='host';NET.session=null;newGame();});
     },
     onError:function(){},
     onRematch:onRematchRequest,
-    onCancel:function(){NET.mode='ai';newGame();}
+    onCancel:function(){NET.mode='ai';NET.role='host';newGame();}
   });
 }
 function applyPeerOp(op){
@@ -492,15 +493,19 @@ function renderCaptured(){
   var hc=document.getElementById('cap-human');
   var ac=document.getElementById('cap-ai');
   hc.innerHTML='';ac.innerHTML='';
+  document.getElementById('cap-title-ai').textContent=netActive()?'对方的缴获':'小miu的缴获';
   if(!G.human)return;
-  for(var i=0;i<G.capHuman.length;i++){
-    var p=G.capHuman[i];
+  // capHuman/capAI are per slot; the guest plays the 'ai' slot
+  var myArr=(NET.role==='host')?G.capHuman:G.capAI;
+  var peerArr=(NET.role==='host')?G.capAI:G.capHuman;
+  for(var i=0;i<myArr.length;i++){
+    var p=myArr[i];
     var img=document.createElement('img');
     img.src=imgSrc(p.c,p.t);
     hc.appendChild(img);
   }
-  for(var j=0;j<G.capAI.length;j++){
-    var q=G.capAI[j];
+  for(var j=0;j<peerArr.length;j++){
+    var q=peerArr[j];
     var img2=document.createElement('img');
     img2.src=imgSrc(q.c,q.t);
     ac.appendChild(img2);
