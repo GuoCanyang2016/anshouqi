@@ -135,11 +135,11 @@ function netLobby(){
       if(NET.mode!=='net')return;
       Netplay.showDisconnect(
         function(){toast('正在重新连接…');NET.session.reconnect();},
-        function(){NET.mode='ai';NET.session=null;newGame();});
+        function(){NET.mode='ai';NET.role='host';NET.session=null;newGame();});
     },
     onError:function(){},
     onRematch:onRematchRequest,
-    onCancel:function(){NET.mode='ai';newGame();}
+    onCancel:function(){NET.mode='ai';NET.role='host';newGame();}
   });
 }
 function onNetOp(op){
@@ -290,10 +290,10 @@ function getMoves(st, side){
       if(!dt){
         moves.push({type:'climbDown',fx:tx0,fy:ty0,tx:dx,ty:dy,cap:null,pr:tr.top.r});
       }else if(dt.open&&dt.c!==side){
-        if(canCapture(tr.top,dt)){
-          moves.push({type:'climbDown',fx:tx0,fy:ty0,tx:dx,ty:dy,cap:{r:dt.r,c:dt.c},pr:tr.top.r});
-        }else if(tr.top.r===dt.r){
+        if(tr.top.r===dt.r){
           moves.push({type:'sacrifice',fromTree:true,fx:tx0,fy:ty0,tx:dx,ty:dy,foe:{r:dt.r,c:dt.c}});
+        }else if(canCapture(tr.top,dt)){
+          moves.push({type:'climbDown',fx:tx0,fy:ty0,tx:dx,ty:dy,cap:{r:dt.r,c:dt.c},pr:tr.top.r});
         }
       }
       // face-down non-tree: cannot jump tree-to-tree (must climb down first)
@@ -440,6 +440,9 @@ function checkWin(st){
   if(hr===0&&hb===0)return 'draw';
   if(hr===0)return 'blue';
   if(hb===0)return 'red';
+  // Side to move has no legal action at all: that side loses (prevents a stuck game)
+  var toMove=st.turn==='human'?st.human:st.ai;
+  if(toMove&&!getMoves(st,toMove).length)return toMove==='red'?'blue':'red';
   // 80 moves without capture = draw (prevent infinite)
   if(st.moveCount-st.lastFlip>160)return 'draw';
   return null;
@@ -473,8 +476,8 @@ function realMove(st,m){
       e={by:actor,type:'flipTree',n:st.moveCount+1,pr:pft.r,x:m.x,y:m.y,
          topC:pft.c,topR:pft.r,botC:pfb.c,botR:pfb.r,botKnown:!!pfb.known};
     }else if(m.type==='sacrifice'){
-      var att=m.fromHole?st.hole:st.board[m.fy][m.fx];
-      e={by:actor,type:'sacrifice',n:st.moveCount+1,ownR:att.r,foeR:(m.foe?m.foe.r:null),fromHole:!!m.fromHole,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};
+      var att=m.fromHole?st.hole:(m.fromTree?st.trees[treeKey(m.fx,m.fy)].top:st.board[m.fy][m.fx]);
+      e={by:actor,type:'sacrifice',n:st.moveCount+1,ownR:att.r,foeR:(m.foe?m.foe.r:null),fromHole:!!m.fromHole,fromTree:!!m.fromTree,fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty};
     }else if(m.type==='enterHole'){
       var pc2=st.board[m.fy][m.fx];
       e={by:actor,type:'enterHole',n:st.moveCount+1,pr:pc2.r,fx:m.fx,fy:m.fy};
@@ -587,7 +590,7 @@ function gameSummary(st){
       if(L.capR)s2+=' 吃'+colN(oc)+RANK_NAME[L.capR];
     }else if(L.type==='sacrifice'){
       var sc=L.by==='human'?hC:aC, fc=sc==='red'?'blue':'red';
-      s2+=colN(sc)+RANK_NAME[L.ownR]+(L.fromHole?'(洞中)':'')+pos(L.fx,L.fy)+'→'+pos(L.tx,L.ty)+'💥与'+colN(fc)+RANK_NAME[L.foeR]+'同归于尽';
+      s2+=colN(sc)+RANK_NAME[L.ownR]+(L.fromHole?'(洞中)':(L.fromTree?'(树上)':''))+(L.fromHole?'':pos(L.fx,L.fy))+'→'+pos(L.tx,L.ty)+'💥与'+colN(fc)+RANK_NAME[L.foeR]+'同归于尽';
     }else if(L.type==='enterHole'){
       var ec=L.by==='human'?hC:aC;
       s2+=colN(ec)+RANK_NAME[L.pr]+pos(L.fx,L.fy)+'→进洞';
