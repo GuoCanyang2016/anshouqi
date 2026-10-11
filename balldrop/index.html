@@ -4,227 +4,326 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>弹球掉梯子</title>
-<style>.ver{position:fixed;bottom:6px;right:10px;font-size:11px;color:#888;opacity:.7;pointer-events:none;z-index:99}
+<style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#1a1a2e;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;user-select:none}
-#wrap{position:relative;width:100%;max-width:420px}
-#cv{display:block;width:100%;background:linear-gradient(#16213e,#0f0f23);border-radius:12px;touch-action:none}
-#hud{position:absolute;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;font-size:16px;font-weight:bold;pointer-events:none;text-shadow:0 2px 4px rgba(0,0,0,.6)}
-#overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.72);border-radius:12px;z-index:10}
-#overlay h2{font-size:26px;margin-bottom:12px}
-#overlay p{font-size:14px;color:#aaa;margin-bottom:20px;line-height:1.8;text-align:center;padding:0 30px}
-#btn-start{background:#e94560;color:#fff;border:none;border-radius:12px;padding:14px 48px;font-size:18px;font-weight:bold;cursor:pointer}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(#fbf5e3,#f3e7c6);color:#5a4632;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none}
+/* 诺基亚机身 */
+#phone{width:100%;max-width:360px;background:linear-gradient(#3d4a5c,#2a3342);border-radius:36px 36px 28px 28px;padding:18px 16px 16px;box-shadow:0 6px 18px rgba(40,30,20,.35),inset 0 2px 0 rgba(255,255,255,.12)}
+#brand{text-align:center;color:#b9c3d0;font-size:12px;letter-spacing:4px;font-weight:bold;margin-bottom:8px}
+#screen{position:relative;background:#c7d9a8;border-radius:6px;border:5px solid #1c222c;overflow:hidden}
+#cv{display:block;width:100%;image-rendering:pixelated}
+#overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#c7d9a8ee;color:#2b3a20;text-align:center;padding:0 18px}
+#overlay h2{font-size:22px;margin-bottom:10px;letter-spacing:2px}
+#overlay p{font-size:13px;line-height:1.8;margin-bottom:16px}
+#overlay .big{font-size:30px;font-weight:bold;margin:2px 0 8px}
+#btn-start{background:#2b3a20;color:#c7d9a8;border:none;border-radius:6px;padding:10px 40px;font-size:16px;font-weight:bold;cursor:pointer;letter-spacing:2px}
 #btn-start:active{transform:scale(.96)}
 .hidden{display:none!important}
-#back{margin-top:14px;color:#888;font-size:13px;text-decoration:none}
+/* 按键 */
+#keys{display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:10px}
+.key{flex:1;height:58px;border:none;border-radius:29px;background:linear-gradient(#5a6678,#465263);color:#e3e8ef;font-size:22px;font-weight:bold;box-shadow:0 3px 0 #1c222c;cursor:pointer;touch-action:none}
+.key.on{transform:translateY(2px);box-shadow:0 1px 0 #1c222c;background:#3a4454}
+#k-pause{flex:0 0 58px;font-size:16px}
+#back{margin-top:14px;color:#8a7358;font-size:13px;text-decoration:none}
+.ver{position:fixed;bottom:6px;right:10px;font-size:11px;color:#a08c6d;opacity:.8;pointer-events:none}
 </style>
 </head>
 <body>
-<div id="wrap">
-  <canvas id="cv" width="400" height="600"></canvas>
-  <div id="hud"><span id="hud-score">0 层</span><span id="hud-life">❤❤❤</span></div>
-  <div id="overlay">
-    <h2>🔴 弹球掉梯子</h2>
-    <p>小球往下掉，左右拖动让它落在梯子上<br>掉空扣一条命，吃到金球加一条命<br>越掉越快，能撑多少层？</p>
-    <button id="btn-start">开始</button>
+<div id="phone">
+  <div id="brand">NOKIA</div>
+  <div id="screen">
+    <canvas id="cv" width="240" height="320"></canvas>
+    <div id="overlay">
+      <h2>弹球掉梯子</h2>
+      <p>梯子一直往上升，左右控制小球往下落<br>
+      ▲ 被顶到最上面的刺 → 死<br>
+      ▼ 没接住掉出屏幕 → 死<br>
+      落到带刺的梯子 → 死<br>
+      吃到梯子上的 ♥ → 加一条命</p>
+      <button id="btn-start">开始</button>
+    </div>
+  </div>
+  <div id="keys">
+    <button class="key" id="k-left">◀</button>
+    <button class="key" id="k-pause">Ⅱ</button>
+    <button class="key" id="k-right">▶</button>
   </div>
 </div>
 <a id="back" href="../">← 回童年游戏</a>
+<div class="ver">V2.0</div>
 <script>
 (function(){
 var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
-var W=400,H=600;
-var G={
-  state:'ready', // ready | play | over
-  score:0, life:3, maxLife:5,
-  speed:1, // falls faster over time
-  ball:{x:W/2,y:80,r:12,vy:0,vx:0},
-  ladders:[], // {x,w,y,gold:{x,y,taken}}
-  targetX:null, // finger x for drag control
-  keys:{l:false,r:false}
-};
-var LADDER_W=86, LADDER_H=12, GAP=110;
+var W=240,H=320;
+var DARK='#2b3a20',MID='#6d8456',BG='#c7d9a8';
+var TOP=14;            // 顶部刺的高度
+var PH=6;              // 梯子厚度
+var R=6;               // 小球半径
+var GRAV=700,MAXFALL=420,MOVE=130;
+var MAXLIFE=9;
+
+var G={state:'ready',plats:[],ball:null,lives:3,score:0,dist:0,time:0,speed:40,
+  spawnIn:0,lastSpike:false,dead:0,blink:0,left:false,right:false,best:0};
+
+try{G.best=+localStorage.getItem('balldrop_best')||0;}catch(e){}
+
+function rand(a,b){return a+Math.random()*(b-a);}
+
+function makePlat(y,forceSafe){
+  var w=Math.round(rand(44,72));
+  var x=Math.round(rand(4+w/2,W-4-w/2));
+  var spikeP=Math.min(0.32,0.12+G.time*0.002);
+  var spike=!forceSafe&&!G.lastSpike&&Math.random()<spikeP;
+  G.lastSpike=spike;
+  var p={x:x,y:y,w:w,spike:spike,heart:null};
+  if(!spike&&!forceSafe&&Math.random()<0.07)p.heart={dx:Math.round(rand(-w/2+6,w/2-6)),taken:false};
+  G.plats.push(p);
+  return p;
+}
 
 function reset(){
-  G.score=0;G.life=3;G.speed=1;
-  G.ball={x:W/2,y:80,r:12,vy:0,vx:0};
-  G.ladders=[];
-  G.targetX=null;
-  // first ladder under the ball
-  G.ladders.push({x:W/2,y:200,w:LADDER_W,gold:null});
-  var y=200+GAP;
-  while(y<H+40){
-    addLadder(y);
-    y+=GAP;
+  G.plats=[];G.lives=3;G.score=0;G.dist=0;G.time=0;G.speed=40;G.lastSpike=false;G.dead=0;G.blink=0;
+  for(var y=110;y<H+20;y+=rand(52,70))makePlat(Math.round(y),y<180);
+  G.spawnIn=rand(52,70);
+  var first=G.plats[0];
+  G.ball={x:first.x,y:first.y-R,vy:0,on:first};
+}
+
+function gap(){return rand(48,70)+Math.min(16,G.time*0.08);}
+
+// 掉命后：在屏幕中段找一块安全梯子放球，没有就造一块
+function respawn(){
+  var best=null;
+  for(var i=0;i<G.plats.length;i++){
+    var p=G.plats[i];
+    if(!p.spike&&p.y>H*0.35&&p.y<H*0.7){best=p;break;}
   }
-  updateHUD();
-}
-function addLadder(y){
-  var w=LADDER_W*(0.9+Math.random()*0.3);
-  var x=w/2+Math.random()*(W-w);
-  var gold=null;
-  if(Math.random()<0.35){
-    gold={x:x+(Math.random()-0.5)*w*0.7,y:y-22,taken:false};
+  if(!best){
+    best={x:W/2,y:Math.round(H*0.55),w:64,spike:false,heart:null};
+    G.plats.push(best);
   }
-  G.ladders.push({x:x,y:y,w:w,gold:gold});
+  G.ball={x:best.x,y:best.y-R,vy:0,on:best};
+  G.blink=1.2;
 }
-function updateHUD(){
-  document.getElementById('hud-score').textContent=G.score+' 层';
-  var s='';
-  for(var i=0;i<G.maxLife;i++)s+=i<G.life?'❤':'🖤';
-  document.getElementById('hud-life').textContent=s;
+
+function die(){
+  if(G.dead>0||G.blink>0)return;
+  G.lives--;
+  vibrate(120);
+  if(G.lives<=0){gameOver();return;}
+  G.dead=0.9;  // 停顿一下再复活
 }
-function loseLife(){
-  G.life--;
-  updateHUD();
-  if(G.life<=0){
-    G.state='over';
-    showOver();
-  }else{
-    // respawn on the highest ladder
-    var top=G.ladders[0];
-    for(var i=1;i<G.ladders.length;i++)if(G.ladders[i].y<top.y)top=G.ladders[i];
-    G.ball.x=top.x;G.ball.y=top.y-30;G.ball.vy=0;G.ball.vx=0;
-  }
+
+function gameOver(){
+  G.state='over';
+  var newBest=G.score>G.best;
+  if(newBest){G.best=G.score;try{localStorage.setItem('balldrop_best',G.best);}catch(e){}}
+  showOverlay('<h2>游戏结束</h2><div class="big">'+G.score+'</div><p>'+(newBest?'新纪录！':'最高 '+G.best)+'</p><button id="btn-start">再来一局</button>');
 }
-function showOver(){
+
+function showOverlay(html,onBtn){
   var ov=document.getElementById('overlay');
-  ov.classList.remove('hidden');
-  ov.innerHTML='<h2>游戏结束</h2><p>掉了 '+G.score+' 层<br>再来一次？</p><button id="btn-start">再来</button>';
-  document.getElementById('btn-start').addEventListener('click',start);
+  ov.innerHTML=html;ov.classList.remove('hidden');
+  var b=document.getElementById('btn-start');
+  if(b)b.addEventListener('click',onBtn||start);
 }
+
 function start(){
   document.getElementById('overlay').classList.add('hidden');
-  reset();
-  G.state='play';
+  reset();G.state='play';last=0;
 }
-// Controls: drag / keys
-function ptrX(e){
-  var r=cv.getBoundingClientRect();
-  var cx=(e.touches?e.touches[0].clientX:e.clientX);
-  return (cx-r.left)/r.width*W;
-}
-cv.addEventListener('pointerdown',function(e){G.targetX=ptrX(e);});
-cv.addEventListener('pointermove',function(e){if(e.buttons||e.pointerType==='touch')G.targetX=ptrX(e);});
-window.addEventListener('pointerup',function(){G.targetX=null;});
-window.addEventListener('keydown',function(e){
-  if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A')G.keys.l=true;
-  if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')G.keys.r=true;
-});
-window.addEventListener('keyup',function(e){
-  if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A')G.keys.l=false;
-  if(e.key==='ArrowRight'||e.key==='d'||e.key==='D')G.keys.r=false;
-});
-document.getElementById('btn-start').addEventListener('click',start);
 
+function togglePause(){
+  if(G.state==='play'){
+    G.state='pause';
+    showOverlay('<h2>暂停</h2><p>得分 '+G.score+'</p><button id="btn-start">继续</button>',function(){
+      document.getElementById('overlay').classList.add('hidden');G.state='play';last=0;
+    });
+  }
+}
+
+function vibrate(ms){try{navigator.vibrate&&navigator.vibrate(ms);}catch(e){}}
+
+function update(dt){
+  G.time+=dt;
+  G.speed=Math.min(130,40+G.time*1.1);
+  var rise=G.speed*dt,i,p;
+
+  // 梯子上升
+  for(i=G.plats.length-1;i>=0;i--){
+    G.plats[i].y-=rise;
+    if(G.plats[i].y<-10)G.plats.splice(i,1);
+  }
+  G.spawnIn-=rise;
+  if(G.spawnIn<=0){makePlat(H+8);G.spawnIn+=gap();}
+
+  G.dist+=rise;
+  G.score=Math.floor(G.dist/10);
+
+  if(G.blink>0)G.blink-=dt;
+  if(G.dead>0){G.dead-=dt;if(G.dead<=0)respawn();return;}
+
+  var b=G.ball;
+  // 左右
+  var dir=(G.right?1:0)-(G.left?1:0);
+  b.x+=dir*MOVE*dt;
+  if(b.x<R)b.x=R;
+  if(b.x>W-R)b.x=W-R;
+
+  if(b.on){
+    p=b.on;
+    if(G.plats.indexOf(p)<0||Math.abs(b.x-p.x)>p.w/2+R*0.3){b.on=null;b.vy=0;}
+    else b.y=p.y-R;
+  }
+  if(!b.on){
+    var prevBottom=b.y+R;
+    b.vy=Math.min(MAXFALL,b.vy+GRAV*dt);
+    b.y+=b.vy*dt;
+    var bottom=b.y+R;
+    for(i=0;i<G.plats.length;i++){
+      p=G.plats[i];
+      // 上一帧球底在梯子面上方（梯子已上移 rise），这一帧穿过了梯子面 → 落上
+      if(prevBottom<=p.y+rise+0.5&&bottom>=p.y&&Math.abs(b.x-p.x)<=p.w/2+R*0.3){
+        if(p.spike&&G.blink<=0){die();return;}
+        b.on=p;b.vy=0;b.y=p.y-R;
+        break;
+      }
+    }
+  }
+
+  // 吃爱心
+  for(i=0;i<G.plats.length;i++){
+    p=G.plats[i];
+    if(p.heart&&!p.heart.taken){
+      var hx=p.x+p.heart.dx,hy=p.y-6;
+      if(Math.abs(b.x-hx)<R+5&&Math.abs(b.y-hy)<R+5){
+        p.heart.taken=true;
+        if(G.lives<MAXLIFE)G.lives++;
+        vibrate(30);
+      }
+    }
+  }
+
+  // 顶到刺 / 掉出底部
+  if(b.y-R<TOP)die();
+  else if(b.y-R>H)die();
+}
+
+// ---------- 绘制 ----------
+function drawHeart(x,y,c){
+  ctx.fillStyle=c;
+  var px=[[1,0],[2,0],[4,0],[5,0],[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[1,3],[2,3],[3,3],[4,3],[5,3],[2,4],[3,4],[4,4],[3,5]];
+  for(var i=0;i<px.length;i++)ctx.fillRect(x-3+px[i][0],y-3+px[i][1],1,1);
+}
+
+function drawPlat(p){
+  var x0=Math.round(p.x-p.w/2),y=Math.round(p.y);
+  ctx.fillStyle=DARK;
+  ctx.fillRect(x0,y,p.w,PH);
+  // 梯子横档
+  ctx.fillStyle=BG;
+  for(var x=x0+3;x<x0+p.w-3;x+=6)ctx.fillRect(x,y+2,3,2);
+  if(p.spike){
+    ctx.fillStyle=DARK;
+    for(var s=x0+1;s+6<=x0+p.w;s+=6){
+      ctx.beginPath();ctx.moveTo(s,y);ctx.lineTo(s+3,y-6);ctx.lineTo(s+6,y);ctx.closePath();ctx.fill();
+    }
+  }
+  if(p.heart&&!p.heart.taken)drawHeart(Math.round(p.x+p.heart.dx),y-6,DARK);
+}
+
+function draw(){
+  ctx.fillStyle=BG;ctx.fillRect(0,0,W,H);
+  var i;
+  for(i=0;i<G.plats.length;i++)drawPlat(G.plats[i]);
+
+  // 顶部刺
+  ctx.fillStyle=DARK;
+  ctx.fillRect(0,0,W,4);
+  for(var s=0;s<W;s+=8){
+    ctx.beginPath();ctx.moveTo(s,4);ctx.lineTo(s+4,TOP);ctx.lineTo(s+8,4);ctx.closePath();ctx.fill();
+  }
+
+  // 球
+  var b=G.ball;
+  if(b&&G.state!=='ready'&&G.dead<=0&&!(G.blink>0&&Math.floor(G.blink*10)%2)){
+    ctx.fillStyle=DARK;
+    ctx.beginPath();ctx.arc(b.x,b.y,R,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=BG;
+    ctx.fillRect(Math.round(b.x-3),Math.round(b.y-3),2,2);
+  }
+
+  // HUD
+  ctx.fillStyle=BG;ctx.fillRect(0,H-14,W,14);
+  ctx.fillStyle=DARK;ctx.fillRect(0,H-15,W,1);
+  ctx.font='bold 11px monospace';ctx.textBaseline='middle';
+  ctx.textAlign='left';ctx.fillText(String(G.score).padStart(5,'0'),4,H-7);
+  ctx.textAlign='right';
+  var n=Math.min(G.lives,MAXLIFE);
+  for(i=0;i<n;i++)drawHeart(W-6-i*9,H-7,DARK);
+}
+
+// ---------- 主循环 ----------
 var last=0;
 function loop(t){
   requestAnimationFrame(loop);
-  var dt=Math.min(0.05,(t-last)/1000||0.016);
+  var dt=last?Math.min(0.04,(t-last)/1000):0.016;
   last=t;
-  if(G.state!=='play')return;
-  var b=G.ball;
-  // horizontal control
-  var moveV=0;
-  if(G.targetX!==null){
-    var dx=G.targetX-b.x;
-    moveV=Math.max(-340,Math.min(340,dx*8));
-  }else{
-    if(G.keys.l)moveV-=280;
-    if(G.keys.r)moveV+=280;
-  }
-  b.vx+=(moveV-b.vx)*Math.min(1,dt*10);
-  b.x+=b.vx*dt;
-  if(b.x<b.r){b.x=b.r;b.vx=0;}
-  if(b.x>W-b.r){b.x=W-b.r;b.vx=0;}
-  // gravity (speeds up with score)
-  var grav=900+G.score*14;
-  b.vy+=grav*dt;
-  if(b.vy>620)b.vy=620;
-  b.y+=b.vy*dt;
-  // world scroll: keep ball in upper 2/3, move ladders up as ball descends
-  var i,L,landed=false;
-  for(i=0;i<G.ladders.length;i++){
-    L=G.ladders[i];
-    // landing check: ball falling onto ladder top
-    if(b.vy>0&&
-       b.y+b.r>=L.y&&b.y+b.r<=L.y+LADDER_H+14&&
-       Math.abs(b.x-L.x)<=L.w/2){
-      b.y=L.y-b.r;
-      b.vy=-260; // small bounce
-      G.score++;
-      G.speed=1+G.score*0.02;
-      // gold?
-      if(L.gold&&!L.gold.taken&&Math.abs(b.x-L.gold.x)<26){
-        L.gold.taken=true;
-        if(G.life<G.maxLife){G.life++;updateHUD();}
-        G.score+=2;
-      }
-      updateHUD();
-      landed=true;
-      break;
-    }
-    // gold collect even without landing (touch)
-    if(L.gold&&!L.gold.taken&&Math.hypot(b.x-L.gold.x,b.y-L.gold.y)<b.r+10){
-      L.gold.taken=true;
-      if(G.life<G.maxLife){G.life++;updateHUD();}
-    }
-  }
-  // scroll ladders up when ball goes below mid
-  if(b.y>H*0.55){
-    var dy=b.y-H*0.55;
-    b.y=H*0.55;
-    for(i=G.ladders.length-1;i>=0;i--){
-      G.ladders[i].y-=dy;
-      if(G.ladders[i].gold)G.ladders[i].gold.y-=dy;
-      if(G.ladders[i].y<-30)G.ladders.splice(i,1);
-    }
-  }
-  // add new ladders at bottom
-  var maxY=0;
-  for(i=0;i<G.ladders.length;i++)if(G.ladders[i].y>maxY)maxY=G.ladders[i].y;
-  while(maxY<H+40){maxY+=GAP;addLadder(maxY);}
-  // fell through everything
-  if(b.y>H+30){
-    loseLife();
-    return;
-  }
+  if(G.state==='play')update(dt);
   draw();
 }
-function draw(){
-  ctx.clearRect(0,0,W,H);
-  var i,L;
-  // ladders
-  for(i=0;i<G.ladders.length;i++){
-    L=G.ladders[i];
-    ctx.fillStyle='#e94560';
-    ctx.beginPath();
-    ctx.roundRect(L.x-L.w/2,L.y,L.w,LADDER_H,6);
-    ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.25)';
-    ctx.fillRect(L.x-L.w/2+4,L.y+2,L.w-8,3);
-    if(L.gold&&!L.gold.taken){
-      ctx.fillStyle='#ffd700';
-      ctx.beginPath();
-      ctx.arc(L.gold.x,L.gold.y,9,0,Math.PI*2);
-      ctx.fill();
-      ctx.fillStyle='#fff8';
-      ctx.beginPath();
-      ctx.arc(L.gold.x-3,L.gold.y-3,3,0,Math.PI*2);
-      ctx.fill();
-    }
-  }
-  // ball
-  var b=G.ball;
-  var grd=ctx.createRadialGradient(b.x-4,b.y-4,2,b.x,b.y,b.r);
-  grd.addColorStop(0,'#ff8a8a');grd.addColorStop(1,'#d92638');
-  ctx.fillStyle=grd;
-  ctx.beginPath();
-  ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
-  ctx.fill();
+
+// ---------- 操作 ----------
+function bindKey(id,prop){
+  var el=document.getElementById(id);
+  function on(e){e.preventDefault();G[prop]=true;el.classList.add('on');}
+  function off(){G[prop]=false;el.classList.remove('on');}
+  el.addEventListener('pointerdown',on);
+  el.addEventListener('pointerup',off);
+  el.addEventListener('pointercancel',off);
+  el.addEventListener('pointerleave',off);
+  el.addEventListener('contextmenu',function(e){e.preventDefault();});
 }
+bindKey('k-left','left');
+bindKey('k-right','right');
+document.getElementById('k-pause').addEventListener('click',togglePause);
+
+// 按住屏幕左半边/右半边也能控制
+var scr=document.getElementById('screen'),scrPtr={};
+function scrDir(e){
+  var r=scr.getBoundingClientRect();
+  return e.clientX-r.left<r.width/2?'left':'right';
+}
+function scrUpdate(){
+  var l=false,r=false;
+  for(var k in scrPtr){if(scrPtr[k]==='left')l=true;else r=true;}
+  G.left=l;G.right=r;
+}
+cv.addEventListener('pointerdown',function(e){scrPtr[e.pointerId]=scrDir(e);scrUpdate();});
+cv.addEventListener('pointermove',function(e){if(scrPtr[e.pointerId]){scrPtr[e.pointerId]=scrDir(e);scrUpdate();}});
+function scrEnd(e){if(scrPtr[e.pointerId]){delete scrPtr[e.pointerId];scrUpdate();}}
+window.addEventListener('pointerup',scrEnd);
+window.addEventListener('pointercancel',scrEnd);
+
+var KL={ArrowLeft:1,a:1,A:1,'4':1},KR={ArrowRight:1,d:1,D:1,'6':1};
+window.addEventListener('keydown',function(e){
+  if(KL[e.key])G.left=true;
+  if(KR[e.key])G.right=true;
+  if(e.key==='p'||e.key==='P'||e.key==='Escape')togglePause();
+  if((e.key===' '||e.key==='Enter')&&G.state!=='play'){
+    var b=document.getElementById('btn-start');if(b){e.preventDefault();b.click();}
+  }
+});
+window.addEventListener('keyup',function(e){
+  if(KL[e.key])G.left=false;
+  if(KR[e.key])G.right=false;
+});
+document.addEventListener('visibilitychange',function(){if(document.hidden)togglePause();});
+
+document.getElementById('btn-start').addEventListener('click',start);
+reset();
 requestAnimationFrame(loop);
 })();
 </script>
-<div class="ver">V1.0</div></body>
+</body>
 </html>
