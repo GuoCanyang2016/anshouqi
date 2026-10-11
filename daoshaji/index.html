@@ -263,8 +263,10 @@ function doFlip(G,x,y){
   p.open=true;
   var result={type:'flip',piece:p,firstFlip:false,pickup:[]};
   if(!G.human){
-    G.human=p.c;
-    G.ai=(p.c==='red'?'blue':'red');
+    // The flipper (by turn slot) gets the flipped color
+    var other=(p.c==='red'?'blue':'red');
+    if(G.turn==='ai'){G.ai=p.c;G.human=other;}
+    else{G.human=p.c;G.ai=other;}
     result.firstFlip=true;
   }
   result.pickup=[];
@@ -553,7 +555,8 @@ function doMoveFixed(G,m){
   }else if(m.type==='capture'){
     var def=G.board[m.ty][m.tx];
     result.captured=def;
-    if(p.c==='red')G.capHuman.push({c:def.c,t:def.t});
+    // capHuman/capAI belong to the human/ai slot, whose color is set by the first flip
+    if(p.c===G.human)G.capHuman.push({c:def.c,t:def.t});
     else G.capAI.push({c:def.c,t:def.t});
     G.board[m.ty][m.tx]=p;
     G.board[m.fy][m.fx]=null;
@@ -561,15 +564,13 @@ function doMoveFixed(G,m){
     var def=G.board[m.ty][m.tx];
     result.captured=def;
     result.rocket=true;
-    // Both destroyed. Record correctly by color.
-    // p.c's piece dies -> opponent of p.c captures it
-    // def.c's piece dies -> opponent of def.c captures it
-    if(p.c==='red'){
-      G.capHuman.push({c:def.c,t:def.t}); // red captures blue's piece
-      G.capAI.push({c:p.c,t:p.t});       // blue captures red's rocket
+    // Both destroyed: each side's list gets the other side's lost piece
+    if(p.c===G.human){
+      G.capHuman.push({c:def.c,t:def.t});
+      G.capAI.push({c:p.c,t:p.t});
     }else{
-      G.capAI.push({c:def.c,t:def.t});   // blue captures red's piece
-      G.capHuman.push({c:p.c,t:p.t});    // red captures blue's rocket
+      G.capAI.push({c:def.c,t:def.t});
+      G.capHuman.push({c:p.c,t:p.t});
     }
     G.board[m.ty][m.tx]=null;
     G.board[m.fy][m.fx]=null;
@@ -620,11 +621,11 @@ function netLobby(){
       if(NET.mode!=='net')return;
       Netplay.showDisconnect(
         function(){toast('正在重新连接…');NET.session.reconnect();},
-        function(){NET.mode='ai';NET.session=null;newGame();});
+        function(){NET.mode='ai';NET.role='host';NET.session=null;newGame();});
     },
     onError:function(){},
     onRematch:onRematchRequest,
-    onCancel:function(){NET.mode='ai';newGame();}
+    onCancel:function(){NET.mode='ai';NET.role='host';newGame();}
   });
 }
 function onNetOp(op){
@@ -681,7 +682,9 @@ function gameSummary(st){
   for(var k=0;k<log.length;k++){
     var L=log[k], s2='第'+L.n+'手 ';
     if(L.type==='flip'){
-      s2+=who2(L.cc)+' 翻'+pos(L.x,L.y)+'='+colN(L.cc)+NAMES[L.ct];
+      // 按动手的 slot 标人，不按牌色（谁都可能翻到对方颜色的牌）
+      var meSlot=(NET.mode==='net'&&NET.role==='guest')?'ai':'human';
+      s2+=(L.by===meSlot?'我':foe)+' 翻'+pos(L.x,L.y)+'='+colN(L.cc)+NAMES[L.ct];
     }else{
       var mc=L.pc||me, oc=mc==='red'?'blue':'red';
       s2+=who2(mc)+' '+colN(mc)+NAMES[L.pt]+pos(L.fx,L.fy)+'→'+pos(L.tx,L.ty);
@@ -870,8 +873,8 @@ function renderCaptured(){
   var ac=document.getElementById('cap-ai');
   hc.innerHTML='';ac.innerHTML='';
   document.getElementById('cap-title-ai').textContent=netActive()?'对方的缴获':'小miu的缴获';
-  var myArr=(netActive()&&myColor()==='blue')?G.capAI:G.capHuman;
-  var peerArr=(netActive()&&myColor()==='blue')?G.capHuman:G.capAI;
+  var myArr=(NET.role==='host')?G.capHuman:G.capAI;
+  var peerArr=(NET.role==='host')?G.capAI:G.capHuman;
   var lists=[[hc,myArr],[ac,peerArr]];
   for(var li=0;li<lists.length;li++){
     var box=lists[li][0],arr=lists[li][1];
