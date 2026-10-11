@@ -50,7 +50,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
   </div>
 </div>
 <a id="back" href="../">← 回童年游戏</a>
-<div class="ver">V2.2</div>
+<div class="ver">V2.3</div>
+<script src="../sfx.js"></script>
 <script>
 (function(){
 var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
@@ -137,12 +138,14 @@ function die(){
   if(G.dead>0||G.blink>0)return;
   G.lives--;
   vibrate(120);
+  if(G.lives>0)sfx('beepDie');
   if(G.lives<=0){gameOver();return;}
   G.dead=0.9;  // 停顿一下再复活
 }
 
 function gameOver(){
   G.state='over';
+  sfx('beepOver');
   var newBest=G.score>G.best;
   if(newBest){G.best=G.score;try{localStorage.setItem('balldrop_best',G.best);}catch(e){}}
   showOverlay('<h2>游戏结束</h2><div class="big">'+G.score+'</div><p>'+(newBest?'新纪录！':'最高 '+G.best)+'</p><button id="btn-start">再来一局</button>');
@@ -157,7 +160,7 @@ function showOverlay(html,onBtn){
 
 function start(){
   document.getElementById('overlay').classList.add('hidden');
-  reset();G.state='play';last=0;
+  reset();G.state='play';last=0;sfx('beepStart');
 }
 
 function togglePause(){
@@ -169,13 +172,16 @@ function togglePause(){
   }
 }
 
+function sfx(n){if(window.SFX)SFX.play(n);}
 function vibrate(ms){try{navigator.vibrate&&navigator.vibrate(ms);}catch(e){}}
 
 function update(dt){
   G.time+=dt;
   // 一直加速不封顶：前期加得快，后面慢一点但不停
   G.speed=40+120*(1-Math.exp(-G.time/50))+G.time*0.5;
-  G.level=Math.floor(G.time/15)+1;
+  var lv=Math.floor(G.time/15)+1;
+  if(lv>G.level)sfx('beepLevel');
+  G.level=lv;
   var move=MOVE+G.speed*0.8,maxFall=Math.max(MAXFALL,G.speed*2.5);
   var rise=G.speed*dt,i,p;
 
@@ -215,7 +221,7 @@ function update(dt){
       // 上一帧球底在梯子面上方（梯子已上移 rise），这一帧穿过了梯子面 → 落上
       if(prevBottom<=p.y+rise+0.5&&bottom>=p.y&&Math.abs(b.x-p.x)<=p.w/2+R*0.3){
         if(p.spike&&G.blink<=0){die();return;}
-        b.on=p;b.vy=0;b.y=p.y-R;
+        b.on=p;b.vy=0;b.y=p.y-R;sfx('beepLand');
         break;
       }
     }
@@ -229,6 +235,7 @@ function update(dt){
       if(Math.abs(b.x-hx)<R+5&&Math.abs(b.y-hy)<R+5){
         p.heart.taken=true;
         if(G.lives<MAXLIFE)G.lives++;
+        sfx('beepHeart');
         vibrate(30);
       }
     }

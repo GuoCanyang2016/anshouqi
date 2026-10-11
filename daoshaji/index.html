@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="../netplay.js"></script>
+<script src="../sfx.js"></script>
 <title>刀杀鸡 - 你 vs 小miu</title>
 <style>.ver{position:fixed;bottom:6px;right:10px;font-size:11px;color:#888;opacity:.7;pointer-events:none;z-index:99}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -580,7 +581,11 @@ function doMoveFixed(G,m){
 }
 
 // UI uses doMoveFixed too (it handles everything correctly)
-var doMoveUI=doMoveFixed;
+var doMoveUI=function(G,m){
+  var r=doMoveFixed(G,m);
+  if(r&&window.SFX)SFX.dirt(r.rocket?'boom':r.captured?'capture':'move');
+  return r;
+};
 
 /* ===== UI ===== */
 var G, sel=null, hints=[], aiThinking=false;
@@ -915,6 +920,7 @@ function onTap(x,y){
   if(p&&!p.open){
     var result=doFlip(G,x,y);
     if(!result)return;
+    if(window.SFX)SFX.dirt('flip');
     var msg='翻开：'+NAMES[p.t];
     if(result.firstFlip){
       msg+='，你是'+(p.c==='red'?'红':'蓝')+'方！';
@@ -1022,6 +1028,7 @@ function applyPeerMove(m){
   if(m.type==='flip'){
     result=doFlip(G,m.x,m.y);
     if(result){
+      if(window.SFX)SFX.dirt('flip');
       logMove({type:'flip',x:m.x,y:m.y,ct:result.piece.t,cc:result.piece.c});
       var fp=result.piece;
       var fmsg=oppName()+'翻开了'+NAMES[fp.t];
@@ -1063,6 +1070,7 @@ function applyPeerMove(m){
 
 function showOverlay(title,reason){
   document.getElementById('ov-text').textContent=title;
+  if(window.SFX)SFX.result(title);
   if(reason){
     var rc=document.getElementById('ov-card');
     var r=rc.querySelector('.reason');
@@ -1102,5 +1110,5 @@ if(typeof Netplay!=='undefined'){
   });
 }else{G=newState();render();}
 </script>
-<div class="ver">V1.1</div></body>
+<div class="ver">V1.2</div></body>
 </html>

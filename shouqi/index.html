@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="../netplay.js"></script>
+<script src="../sfx.js"></script>
 <title>兽棋 - 你 vs 小miu</title>
 <style>.ver{position:fixed;bottom:6px;right:10px;font-size:11px;color:#888;opacity:.7;pointer-events:none;z-index:99}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -534,6 +535,11 @@ function realMove(st,m){
       var _capName=RANK_NAME[e.capR];
       toast(_isLocal?('吃掉了对方'+_capName+'！'):(_opp+'吃掉了你的'+_capName+'！'));
     }
+  }
+  if(st===G&&e&&window.SFX){
+    if(e.type==='flip'||e.type==='flipTree')SFX.dirt('flip');
+    else if(e.type==='sacrifice')SFX.dirt('boom');
+    else SFX.dirt(e.capR?'capture':'move');
   }
   if(e&&st.log)st.log.push(e);
   return cap;
@@ -1376,6 +1382,7 @@ function endGame(w){
   if(w==='draw')t.textContent='和棋！';
   else if(w===myColor())t.textContent='你赢了！🎉';
   else t.textContent=foe+'赢了！';
+  if(window.SFX)SFX.result(t.textContent);
   document.getElementById('overlay').classList.add('show');
 }
 
@@ -1434,5 +1441,5 @@ if(typeof Netplay!=='undefined'){
   });
 }else newGame();
 </script>
-<div class="ver">V1.1</div></body>
+<div class="ver">V1.2</div></body>
 </html>

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="../netplay.js"></script>
+<script src="../sfx.js"></script>
 <title>军棋 - 你 vs 小miu</title>
 <style>.ver{position:fixed;bottom:6px;right:10px;font-size:11px;color:#888;opacity:.7;pointer-events:none;z-index:99}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -321,6 +322,11 @@ function logMove(st,e){
   if(st===G&&st.log){e.by=st.turn;e.n=st.log.length+1;st.log.push(e);}
 }
 function doMove(st,m){
+  if(st===G&&window.SFX){
+    if(m.type==='flip')SFX.dirt('flip');
+    else if(m.type==='capture')SFX.dirt(m.result==='both'?'boom':'capture');
+    else SFX.dirt('move');
+  }
   st.justFlipped=(m.type==='flip');
   if(m.type==='flip'){
     var p=st.board[m.y][m.x];
@@ -693,6 +699,7 @@ function endGame(){
 }
 function showOverlay(title){
   document.getElementById('ov-text').textContent=title;
+  if(window.SFX)SFX.result(title);
   document.getElementById('ov-rematch').style.display='none';
   document.getElementById('overlay').classList.add('show');
 }
@@ -1329,5 +1336,5 @@ if(typeof Netplay!=='undefined'){
   });
 }else newGame();
 </script>
-<div class="ver">V1.2</div></body>
+<div class="ver">V1.3</div></body>
 </html>

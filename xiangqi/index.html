@@ -59,6 +59,7 @@
 </div>
 <div id="toast"></div>
 <div id="overlay"><div id="ov-card"><div id="ov-text"></div><button id="btn-again">再来一局</button></div></div>
+<script src="../sfx.js"></script>
 <script>
 /*__CORE_BEGIN__*/
 var D4=[[1,0],[-1,0],[0,1],[0,-1]];
@@ -274,6 +275,7 @@ function notation(b,m,side){
 /*__CORE_END__*/
 /* ---- UI ---- */
 var board,turn,selected,selMoves,moveHist,gameOver,aiThinking,lastMove;
+var anim=null,animGen=0; /* 正在滑动的棋子 */
 var aiDepth=3; /* 2=新手 3=普通 4=大师 */
 var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 var W,H,cell,MG;
@@ -335,9 +337,17 @@ function draw(){
   var tr=inCheck(board,'r')&&turn==='r'&&!gameOver;
   var tb=inCheck(board,'b')&&turn==='b'&&!gameOver;
   for(y=0;y<10;y++)for(x=0;x<9;x++){
-    var p=board[y][x];if(!p)continue;
-    var inChk=(p.t==='k'&&((p.s==='r'&&tr)||(p.s==='b'&&tb)));
+    var p=board[y][x];
+    if(anim&&x===anim.tx&&y===anim.ty)p=anim.cap; /* 被吃的子等对方落到再消失 */
+    if(!p)continue;
+    var inChk=!anim&&(p.t==='k'&&((p.s==='r'&&tr)||(p.s==='b'&&tb)));
     drawPiece(x,y,p,inChk);
+  }
+  if(anim){
+    var k=anim.k,e=k<0.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    var ax=PX(anim.fx)+(PX(anim.tx)-PX(anim.fx))*e;
+    var ay=PY(anim.fy)+(PY(anim.ty)-PY(anim.fy))*e;
+    drawPieceAt(ax,ay,anim.p,false,1+0.12*Math.sin(Math.PI*k));
   }
   if(selected){
     ctx.strokeStyle='#f1c40f';ctx.lineWidth=3;
@@ -351,9 +361,10 @@ function draw(){
     }
   }
 }
-function drawPiece(x,y,p,inChk){
-  var cx=PX(x),cy=PY(y),r=cell*0.44;
-  ctx.beginPath();ctx.arc(cx+1.5,cy+2.5,r,0,7);ctx.fillStyle='rgba(0,0,0,.20)';ctx.fill();
+function drawPiece(x,y,p,inChk){drawPieceAt(PX(x),PY(y),p,inChk,1);}
+function drawPieceAt(cx,cy,p,inChk,lift){
+  var r=cell*0.44*lift,sh=(lift-1)*cell*0.6;
+  ctx.beginPath();ctx.arc(cx+1.5+sh,cy+2.5+sh*1.4,r,0,7);ctx.fillStyle='rgba(0,0,0,'+(0.20+(lift-1)*0.8)+')';ctx.fill();
   ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fillStyle='#f8ecd2';ctx.fill();
   var col=p.s==='r'?'#b73a2b':'#262626';
   ctx.lineWidth=2.2;ctx.strokeStyle=col;ctx.stroke();
@@ -387,6 +398,7 @@ function renderHistory(){
   h.parentElement.scrollTop=h.parentElement.scrollHeight;
 }
 function newGame(){
+  animGen++;anim=null;
   board=newBoard();turn='r';selected=null;selMoves=[];moveHist=[];
   gameOver=false;aiThinking=false;lastMove=null;
   document.getElementById('overlay').classList.remove('show');
@@ -407,11 +419,12 @@ function tap(x,y){
   var p=board[y][x];
   if(p&&p.s==='r'){
     selected={x:x,y:y};selMoves=pieceMovesFor(x,y);
+    if(window.SFX)SFX.play('woodPick');
     if(!selMoves.length)toast('这颗棋没有可走的位置');
     draw();
   }else{selected=null;selMoves=[];draw();}
 }
-function commitMove(side,m){
+function commitMove(side,m,done){
   var note=notation(board,m,side);
   doMove(board,m);
   moveHist.push({fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty,cap:m.cap,note:note,side:side});
@@ -419,6 +432,24 @@ function commitMove(side,m){
   selected=null;selMoves=[];
   turn=side==='r'?'b':'r';
   renderHistory();
+  /* 棋子从起点滑到终点，距离越远滑得越久一点 */
+  var dist=Math.sqrt(Math.pow(m.tx-m.fx,2)+Math.pow(m.ty-m.fy,2));
+  var dur=Math.min(420,170+dist*45),t0=performance.now(),gen=++animGen;
+  anim={fx:m.fx,fy:m.fy,tx:m.tx,ty:m.ty,p:board[m.ty][m.tx],cap:m.cap,k:0};
+  if(window.SFX)SFX.play('woodPick');
+  function step(now){
+    if(gen!==animGen)return;
+    anim.k=Math.min(1,(now-t0)/dur);
+    draw();
+    if(anim.k<1){requestAnimationFrame(step);return;}
+    anim=null;draw();
+    if(window.SFX){
+      SFX.play(m.cap?'woodCapture':'woodPlace');
+      if(inCheck(board,turn)&&legalMoves(board,turn).length)SFX.play('woodCheck',0.15);
+    }
+    if(done)done();
+  }
+  requestAnimationFrame(step);
 }
 function afterMove(){
   draw();
@@ -432,6 +463,7 @@ function afterMove(){
       winRed?'🎉 你赢了！':'😅 小miu 获胜';
     document.getElementById('ov-text').style.color=winRed?'#b73a2b':'#333';
     document.getElementById('overlay').classList.add('show');
+    if(window.SFX)SFX.play(winRed?'win':'lose',0.2);
     setStatus(winRed?'你获胜了！':'小miu 获胜');
     return;
   }
@@ -440,22 +472,23 @@ function afterMove(){
     aiThinking=true;draw();
     setTimeout(function(){
       var m=aiBestMove(board,aiDepth);
-      aiThinking=false;
-      if(!m){gameOver=true;return;}
-      commitMove('b',m);
-      afterMove();
-      if(!gameOver)setStatus('轮到你走棋');
+      if(!m){aiThinking=false;gameOver=true;return;}
+      commitMove('b',m,function(){
+        aiThinking=false;
+        afterMove();
+        if(!gameOver)setStatus('轮到你走棋');
+      });
     },90);
   }else{
     setStatus(turn==='r'?'轮到你走棋':'小miu 思考中…');
   }
 }
 function playerMove(m){
-  commitMove('r',m);
-  afterMove();
+  aiThinking=true; /* 动画期间不让点 */
+  commitMove('r',m,function(){aiThinking=false;afterMove();});
 }
 function undo(){
-  if(aiThinking||!moveHist.length)return;
+  if(aiThinking||anim||!moveHist.length)return;
   var n=0;
   while(moveHist.length&&n<2){var m=moveHist.pop();undoMove(board,m);n++;}
   turn='r';selected=null;selMoves=[];lastMove=null;gameOver=false;
