@@ -50,7 +50,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
   </div>
 </div>
 <a id="back" href="../">← 回童年游戏</a>
-<div class="ver">V2.0</div>
+<div class="ver">V2.1</div>
 <script>
 (function(){
 var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
@@ -69,27 +69,53 @@ try{G.best=+localStorage.getItem('balldrop_best')||0;}catch(e){}
 
 function rand(a,b){return a+Math.random()*(b-a);}
 
+// 生成梯子时保证一定跳得到：
+// 每块安全梯子都离上一块安全梯子不远；刺梯子只放在一侧，另一侧边缘下面留出落脚路线
+var REACH=22;   // 两块安全梯子边缘之间最多空出的水平距离
+function clampX(x,w){return Math.round(Math.max(4+w/2,Math.min(W-4-w/2,x)));}
+
 function makePlat(y,forceSafe){
-  var w=Math.round(rand(44,72));
-  var x=Math.round(rand(4+w/2,W-4-w/2));
-  var spikeP=Math.min(0.32,0.12+G.time*0.002);
-  var spike=!forceSafe&&!G.lastSpike&&Math.random()<spikeP;
-  G.lastSpike=spike;
-  var p={x:x,y:y,w:w,spike:spike,heart:null};
-  if(!spike&&!forceSafe&&Math.random()<0.07)p.heart={dx:Math.round(rand(-w/2+6,w/2-6)),taken:false};
+  var w=Math.round(rand(46,72)),S=G.lastSafe,p;
+  var spikeP=Math.min(0.3,0.12+G.time*0.002);
+  if(S&&!forceSafe&&!G.lastSpike&&Math.random()<spikeP){
+    // 随机选一侧留空，刺梯子放在另一侧，不能挡住留空那侧的边缘
+    var side=Math.random()<0.5?-1:1,edge=S.x+side*S.w/2,sx;
+    if(side>0)sx=Math.min(edge-16-w/2,S.x+rand(-30,10));
+    else sx=Math.max(edge+16+w/2,S.x+rand(-10,30));
+    if(sx-w/2>=2&&sx+w/2<=W-2){
+      p={x:Math.round(sx),y:y,w:w,spike:true,heart:null};
+      G.plats.push(p);
+      G.lastSpike=true;G.openSide=side;G.openEdge=edge;
+      return p;
+    }
+  }
+  var x;
+  if(!S)x=rand(4+w/2,W-4-w/2);
+  else if(G.lastSpike)x=G.openEdge+G.openSide*rand(-w/2+12,w/2+REACH);   // 接在留空那侧
+  else{
+    // 往左或往右偏，出界就往回折，免得梯子一直挤在墙边
+    var off=rand(0,S.w/2+w/2+REACH),dir=Math.random()<0.5?-1:1;
+    if(S.x<W*0.3)dir=Math.random()<0.8?1:-1;
+    else if(S.x>W*0.7)dir=Math.random()<0.8?-1:1;
+    x=S.x+dir*off;
+    if(x<4+w/2||x>W-4-w/2)x=S.x-dir*off;
+  }
+  p={x:clampX(x,w),y:y,w:w,spike:false,heart:null};
+  if(!forceSafe&&Math.random()<0.07)p.heart={dx:Math.round(rand(-w/2+6,w/2-6)),taken:false};
   G.plats.push(p);
+  G.lastSpike=false;G.lastSafe=p;
   return p;
 }
 
 function reset(){
-  G.plats=[];G.lives=3;G.score=0;G.dist=0;G.time=0;G.speed=40;G.lastSpike=false;G.dead=0;G.blink=0;
-  for(var y=110;y<H+20;y+=rand(52,70))makePlat(Math.round(y),y<180);
-  G.spawnIn=rand(52,70);
+  G.plats=[];G.lives=3;G.score=0;G.dist=0;G.time=0;G.speed=40;G.level=1;G.lastSpike=false;G.lastSafe=null;G.dead=0;G.blink=0;
+  for(var y=110;y<H+20;y+=gap())makePlat(Math.round(y),y<180);
+  G.spawnIn=gap();
   var first=G.plats[0];
   G.ball={x:first.x,y:first.y-R,vy:0,on:first};
 }
 
-function gap(){return rand(48,70)+Math.min(16,G.time*0.08);}
+function gap(){return rand(42,58);}
 
 // 掉命后：在屏幕中段找一块安全梯子放球，没有就造一块
 function respawn(){
@@ -146,7 +172,10 @@ function vibrate(ms){try{navigator.vibrate&&navigator.vibrate(ms);}catch(e){}}
 
 function update(dt){
   G.time+=dt;
-  G.speed=Math.min(130,40+G.time*1.1);
+  // 一直加速不封顶：前期加得快，后面慢一点但不停
+  G.speed=G.time<50?40+G.time*1.6:120+(G.time-50)*0.8;
+  G.level=Math.floor(G.time/15)+1;
+  var move=MOVE+G.speed*0.5,maxFall=Math.max(MAXFALL,G.speed*2.5);
   var rise=G.speed*dt,i,p;
 
   // 梯子上升
@@ -166,7 +195,7 @@ function update(dt){
   var b=G.ball;
   // 左右
   var dir=(G.right?1:0)-(G.left?1:0);
-  b.x+=dir*MOVE*dt;
+  b.x+=dir*move*dt;
   if(b.x<R)b.x=R;
   if(b.x>W-R)b.x=W-R;
 
@@ -177,7 +206,7 @@ function update(dt){
   }
   if(!b.on){
     var prevBottom=b.y+R;
-    b.vy=Math.min(MAXFALL,b.vy+GRAV*dt);
+    b.vy=Math.min(maxFall,b.vy+GRAV*dt);
     b.y+=b.vy*dt;
     var bottom=b.y+R;
     for(i=0;i<G.plats.length;i++){
@@ -258,6 +287,7 @@ function draw(){
   ctx.fillStyle=DARK;ctx.fillRect(0,H-15,W,1);
   ctx.font='bold 11px monospace';ctx.textBaseline='middle';
   ctx.textAlign='left';ctx.fillText(String(G.score).padStart(5,'0'),4,H-7);
+  ctx.textAlign='center';ctx.fillText('LV'+(G.level||1),W/2,H-7);
   ctx.textAlign='right';
   var n=Math.min(G.lives,MAXLIFE);
   for(i=0;i<n;i++)drawHeart(W-6-i*9,H-7,DARK);
