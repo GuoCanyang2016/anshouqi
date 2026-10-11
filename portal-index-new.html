@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>童年游戏</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(#fbf5e3,#f3e7c6);color:#5a4632;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+h1{font-size:28px;margin-bottom:8px;color:#5a4632}
+.sub{color:#8a7358;font-size:14px;margin-bottom:40px}
+.games{display:flex;flex-direction:column;gap:20px;width:100%;max-width:400px}
+.game{background:#fffdf4;border-radius:16px;padding:24px;text-decoration:none;color:#5a4632;display:flex;align-items:center;gap:16px;transition:transform .2s,box-shadow .2s;border:2px solid #e9d9ae;box-shadow:0 2px 8px rgba(90,70,50,.08)}
+.game:active{transform:scale(.98)}
+.game:hover{border-color:#c46a1b}
+.icon{font-size:48px;flex-shrink:0}
+.info{flex:1}
+.name{font-size:20px;font-weight:bold;margin-bottom:4px}
+.desc{font-size:13px;color:#8a7358;line-height:1.5}
+.arrow{font-size:24px;color:#c46a1b}
+.vtag{font-size:12px;color:#a08c6d;font-weight:normal;margin-left:6px}
+.footer{margin-top:auto;padding-top:40px;color:#a08c6d;font-size:12px}
+</style>
+</head>
+<body>
+<h1>🎮 童年游戏</h1>
+<div class="sub">选一个开始玩吧</div>
+<div class="games">
+<a class="game" href="shouqi/">
+<div class="icon">🐭</div>
+<div class="info">
+<div class="name">兽棋<span class="vtag">V1.1</span></div>
+<div class="desc">翻牌对战，16张牌九宫格，老鼠钻洞，同级可换子</div>
+</div>
+<div class="arrow">›</div>
+</a>
+<a class="game" href="daoshaji/">
+<div class="icon">🔪</div>
+<div class="info">
+<div class="name">刀杀鸡<span class="vtag">V1.1</span></div>
+<div class="desc">80-90原版，胡蜂→癞痢→老虎→人→鸡闭环相克，火箭同归于尽</div>
+</div>
+<div class="arrow">›</div>
+</a>
+<a class="game" href="junqi/">
+<div class="icon">⚔️</div>
+<div class="info">
+<div class="name">军棋<span class="vtag">V1.2</span></div>
+<div class="desc">5x5翻牌对战，司令到工兵等级压制，地雷炸弹军旗</div>
+</div>
+<div class="arrow">›</div>
+</a>
+<a class="game" href="balldrop/">
+<div class="icon">🔴</div>
+<div class="info">
+<div class="name">弹球掉梯子<span class="vtag">V1.0</span></div>
+<div class="desc">诺基亚经典小球，左右拖动落在梯子上，越掉越快</div>
+</div>
+<div class="arrow">›</div>
+</a>
+<a class="game" href="2048/">
+<div class="icon">🔢</div>
+<div class="info">
+<div class="name">2048<span class="vtag">V1.0</span></div>
+<div class="desc">经典数字合成，滑动合并相同数字，目标2048</div>
+</div>
+<div class="arrow">›</div>
+</a>
+<a class="game" href="xiangqi/">
+<div class="icon">♞</div>
+<div class="info">
+<div class="name">象棋<span class="vtag">V1.0</span></div>
+<div class="desc">中国象棋，执红先行，AI对手小miu</div>
+</div>
+<div class="arrow">›</div>
+</a>
+</div>
+<div class="footer">你 vs 小miu · 纯前端本地运行</div>
+</body>
+</html>
