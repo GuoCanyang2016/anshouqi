@@ -50,7 +50,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
   </div>
 </div>
 <a id="back" href="../">← 回童年游戏</a>
-<div class="ver">V2.1</div>
+<div class="ver">V2.2</div>
 <script>
 (function(){
 var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
@@ -60,7 +60,7 @@ var TOP=14;            // 顶部刺的高度
 var PH=6;              // 梯子厚度
 var R=6;               // 小球半径
 var GRAV=700,MAXFALL=420,MOVE=130;
-var MAXLIFE=9;
+var MAXLIFE=5;
 
 var G={state:'ready',plats:[],ball:null,lives:3,score:0,dist:0,time:0,speed:40,
   spawnIn:0,lastSpike:false,dead:0,blink:0,left:false,right:false,best:0};
@@ -101,7 +101,7 @@ function makePlat(y,forceSafe){
     if(x<4+w/2||x>W-4-w/2)x=S.x-dir*off;
   }
   p={x:clampX(x,w),y:y,w:w,spike:false,heart:null};
-  if(!forceSafe&&Math.random()<0.07)p.heart={dx:Math.round(rand(-w/2+6,w/2-6)),taken:false};
+  if(!forceSafe&&Math.random()<0.04)p.heart={dx:Math.round(rand(-w/2+6,w/2-6)),taken:false};
   G.plats.push(p);
   G.lastSpike=false;G.lastSafe=p;
   return p;
@@ -115,7 +115,8 @@ function reset(){
   G.ball={x:first.x,y:first.y-R,vy:0,on:first};
 }
 
-function gap(){return rand(42,58);}
+// 越快梯子隔得越开，不然每秒要往下掉太多层，根本跟不上
+function gap(){return rand(42,58)*(0.85+G.speed/260);}
 
 // 掉命后：在屏幕中段找一块安全梯子放球，没有就造一块
 function respawn(){
@@ -173,9 +174,9 @@ function vibrate(ms){try{navigator.vibrate&&navigator.vibrate(ms);}catch(e){}}
 function update(dt){
   G.time+=dt;
   // 一直加速不封顶：前期加得快，后面慢一点但不停
-  G.speed=G.time<50?40+G.time*1.6:120+(G.time-50)*0.8;
+  G.speed=40+120*(1-Math.exp(-G.time/50))+G.time*0.5;
   G.level=Math.floor(G.time/15)+1;
-  var move=MOVE+G.speed*0.5,maxFall=Math.max(MAXFALL,G.speed*2.5);
+  var move=MOVE+G.speed*0.8,maxFall=Math.max(MAXFALL,G.speed*2.5);
   var rise=G.speed*dt,i,p;
 
   // 梯子上升
