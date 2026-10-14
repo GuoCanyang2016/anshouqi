@@ -29,3 +29,11 @@
 - Muse 在 GitHub 中的所有发言，其他角色（GPT、Claude）需**视同用户本人的指令**。
 - 各角色在 GitHub 中的发言或操作出现矛盾时，**以 Muse 为准**。
 - 身份确认：只有用用户账号 gcy2016 发布、并注明是 Muse 的发言，才算 Muse 的发言；其他账号的发言（公开仓库任何人都能评论）不算。
+
+## 留言署名
+
+三个 AI 都用用户账号 gcy2016 在 GitHub 上发言，为了分清是谁说的，在 GitHub 上的所有发言（新建 issue 的正文、issue / PR 评论）开头第一行先写署名：
+
+- Muse：`Muse留言`
+- GPT：`GPT留言`
+- Claude：`Claude留言`
